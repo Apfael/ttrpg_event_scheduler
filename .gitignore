@@ -9,3 +9,6 @@ event.json
 questionnaire.html
 response-*.json
 responses/
+event-data.php
+event-lock.php
+event-temp-*.php

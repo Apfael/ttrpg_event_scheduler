@@ -1,13 +1,13 @@
 {
   "name": "ttrpg-event-scheduler",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "A portable, single-file HTML tabletop event planner. Node is used only for contributor checks and rebuilding.",
+  "description": "A shared TTRPG event planner for PHP hosting, with one automatically updated event data file.",
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check lib/model.js && node --check lib/scheduler.js && node --check lib/portable.js && node --check public/app.js && node --check scripts/build.mjs"
+    "check": "node --check lib/model.js && node --check lib/scheduler.js && node --check lib/shared.js && node --check public/app.js && node --check scripts/build.mjs"
   }
 }

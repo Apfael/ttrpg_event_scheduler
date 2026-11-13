@@ -1,117 +1,127 @@
-# Tabletop · portable TTRPG event planner
+# Tabletop · shared TTRPG event planner
 
-**[Open organizer](organizer.html) · [Open player questionnaire](players.html) · [Start here](#open-and-save-an-event)**
+**[Organizer](organizer.html) · [Players](players.html) · [Hosting](#put-the-app-online)**
 
-All user-facing entry files are at the repository’s top level. `index.html` also opens the organizer. The player entry lets you open the organizer’s exported `questionnaire.html`; that exported file can also be opened directly. On GitHub, download the HTML file to run it; on an HTML host, these links open the tools directly.
+One hosted app, one shared event. Organizers configure games and rules, share the player link, and receive preferences automatically. Players submit in their browser. All changes go to the same protected event data file beside the app. No questionnaire exports, response files, uploads by players, or manual imports.
 
-**Open `index.html` in your browser. Nothing to install.** No Docker, Node server, package installation, account, or application setup is needed to use this tool. The checked-in HTML file contains all styles, scripts, scheduling logic, and icons. It works offline.
+The player questionnaire is a compact list of **game name, GM, and priority**. Capacity, system, adventure name, and descriptions are hidden under **More about this**. The interface adapts to phones and desktops and follows the system’s light/dark theme.
 
-Keep the app and its data together in a local or cloud-synced folder:
+## Put the app online
+
+Use **PHP-enabled web hosting with PHP 8.2 or later**, HTTPS, and a writable app folder. No Docker, Node server, package installation, database, or external account integration is needed on that host. The host must already provide PHP; a plain cloud-drive link or static-only host such as GitHub Pages cannot execute the write handler.
+
+Upload these top-level files together into one web folder:
 
 ```text
-Our gathering/
-  index.html               Complete organizer app
-  organizer.html           Direct organizer entry (same self-contained app)
-  players.html             Direct player entry; opens an exported questionnaire
-  event.json               Roster, dates, responses, and schedule
-  questionnaire.html       Exported player questionnaire / released schedule
-  responses/
-    response-<id>.json      One response file per player
+gathering/
+  index.html          Organizer entry, also the default page
+  organizer.html      Direct organizer link
+  players.html        Permanent player questionnaire link
+  api.php             Shared read/write handler
+  README.md           Instructions (optional)
 ```
 
-The app creates `event.json` when you open a writable folder. Export `questionnaire.html` when ready to invite players; players create the response files. **Event data lives in these files alongside the app, rather than browser local storage.** Only the light/dark theme uses browser storage.
+1. Upload the files to your PHP web host. The development/source subfolders are not required on the host.
+2. Open `https://your-host.example/gathering/organizer.html` yourself before sharing the link. The first visit lets you set the shared organizer password (12–72 bytes). This protects event setup, player responses, and scheduling. It is the app’s initial team login, not a software installation.
+3. Configure the event, offerings, dates, and assignment rules in that browser page.
+4. Share `https://your-host.example/gathering/players.html`, or use **Share player link**. Keep using this same link throughout the event.
 
-## Open and save an event
+PHP creates `event-data.php` and `event-lock.php` in the same folder. The first contains the entire event and authentication metadata as JSON behind a PHP access guard. The second coordinates writes. Temporary guarded files are used during atomic saves, then renamed/removed. These files should not be committed or overwritten when updating the application.
 
-1. Download `index.html` using GitHub’s **Download raw file**, or copy it from your checkout. Put it in the folder for your event, including a cloud-synced folder on your computer.
-2. Double-click it to open in a modern browser. If your cloud service shows an HTML preview, download/open the file in the browser instead.
-3. In supported desktop browsers, click **Open event folder**, select the folder containing the app, and allow the browser’s folder access prompt. The app opens `event.json` if present; otherwise it writes the displayed event there. Subsequent organizer changes save directly to that file.
-4. In other browsers, use **Open event file** and **Save event file**. Save/move the resulting `event.json` beside the app, replacing the previous copy. A downloaded `event (1).json` is another copy, not an update to the original.
+If the app reports a write failure, grant the hosting account’s PHP process write access to this folder using the host’s file manager. If PHP is downloaded or displayed as text, that hosting location is not executing PHP and is unsuitable. Opening HTML by double-clicking it is also insufficient for shared automatic saving; use the hosted HTTPS link.
 
-The top banner shows whether a folder is connected or changes are only in the current tab. **Save before closing when no folder is open.** When reopening the app, open its folder/event file again. Copy or sync the whole folder to move the event to another computer.
+This is portable between compatible PHP hosts: move the app files and its existing `event-data.php` together. It cannot run automatically in an arbitrary cloud storage folder without a server-side execution/write facility. Ordinary OneDrive/Google Drive/Dropbox file previews are not PHP hosting.
 
-Direct folder access uses the browser’s [directory picker API](https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker), which is supported in Chromium desktop browsers such as Chrome and Edge but is not universal. Phones and other browsers use file import/save/download instead. Browser permission is necessary: an HTML file cannot silently read or overwrite neighboring files. No extension is required.
+## Organizer workflow
 
-## Plan the gathering
+**Event settings** controls the name, location, introduction, time zone, play format, parallel tables, and whether preferences are open. Times use the event’s IANA time zone, such as `Europe/Berlin`.
 
-The initial layout has six sample adventures and three future play windows, without fake player responses. **Overview → Try sample responses** adds 18 clearly marked sample players. Use **Event settings → Create a blank event** before configuring a real event. Use a separate folder per event.
+- **Rotation:** one game per player per available time slot, subject to the session limit.
+- **Single session:** at most one session per player across the event.
 
-- **Event settings:** enter the name, location, introduction, and IANA time zone (for example `Europe/Berlin`). Set parallel table count and whether every GM should receive at least one session. Choose **Rotation** for one adventure per available slot, or **Single session** for at most one session per player over the entire event.
-- **Time slots:** enter date, start/end times, and a label. Times are local to the event time zone. Slots cannot overlap; use parallel tables for simultaneous games. Leave gaps for breaks. Each session occupies one slot; split overnight play at midnight.
-- **Game roster:** define title, GM, minimum/maximum players excluding the GM, maximum repeat sessions, and allowed slots. Adventure name, game system, short description, and expandable long notes are optional. Use consistent GM names across offerings; case and surrounding spaces do not create separate identities.
+**Time slots** defines dated play windows. Slots cannot overlap; use parallel tables for concurrent games. Leave gaps for breaks. A session occupies one whole slot. Split overnight play at midnight.
 
-Selecting every current slot makes a game available in future slots too. If the last explicitly allowed slot is deleted, the offering remains unavailable until you edit its allowed slots.
+**Game roster** defines title, GM, minimum/maximum players excluding the GM, maximum repeat sessions, and allowed slots. Adventure name, game system, short description, and longer notes are optional. Use consistent GM names across offerings. Selecting all current slots also allows future slots; an offering whose last restricted slot is deleted remains unavailable until edited.
 
-## Share the questionnaire and collect files
+**Player responses** displays live submissions, ranked preferences, vetoes, and availability. While open, it checks for changes every 15 seconds; Refresh is available too. Optional CSV and JSON downloads are organizer exports, not part of collecting responses.
 
-1. Choose **Share questionnaire → Save questionnaire HTML**. With an event folder connected, this writes `questionnaire.html` beside the app. Otherwise, save/move it there yourself.
-2. Share that file or its individual cloud link. It includes games, dates, and any released schedule, but **no organizer response list or player names**. Keep `event.json` accessible only to your organizer team.
-3. Players open it in a browser, enter a name, rank games, and choose available slots. Unranked games are never assigned. A GM who also wants to play selects their GM identity to prevent conflicts with running a session.
-4. **Save my response file** creates `response-<id>.json`. Players put it in the shared `responses` subfolder, upload it using the cloud provider’s ordinary file interface, or send it to the organizers. Supported browsers also offer **Save into event folder**, which writes into the selected folder’s `responses` subfolder.
-5. After cloud sync completes, organizers choose **Read response folder**, or **Import responses** to select received JSON files. New response IDs are added, newer versions update existing entries, and repeated imports do not create duplicates. Manual imports reject other-event files; folder scans skip them.
+Edits to settings, games, slots, or responses clear an existing schedule. Configuration changes use a separate revision from player submissions, so saving settings preserves responses received while the form was open. Conflicting organizer edits are rejected rather than silently overwriting each other.
 
-To update preferences, players use **Open my saved response** to load their original JSON before editing. Saving increments that response’s version. Starting again without loading the original produces a new ID; organizers can remove accidental duplicates. Removed response IDs remain excluded during future imports until **Allow importing them again** is selected. Conflicting equal versions are rejected, and older versions cannot replace newer ones.
+Removing a game or slot flags affected responses for review. Original ranks are retained: deleting a first choice cannot silently turn an old second choice into a supposedly fulfilled number-one preference. Reopen preferences when players need to revise their choices.
 
-**Saving a response creates a file; it does not upload it.** The organizer receives the choices only after the file reaches the event folder and is imported. Cloud-drive previews may not execute HTML; players can download and open the file instead.
+## Assignment methods and rules
 
-## Schedule and share the result
+Use the top-level **Assignment rules** navigation item to select:
 
-Close preferences in Event settings, import the final responses, and choose a method in **Schedule**:
-
-| Method | Focus |
+| Method | What it prioritizes |
 | --- | --- |
-| Balanced | Seat more distinct players and spread opportunities while considering rankings. |
-| Preference first | Give greater weight to higher-ranked games. |
-| Lottery | Randomize selection among willing players while seeking broad participation. |
+| Balanced | Broad participation and spreading opportunities across slots. |
+| Preference score | Higher-ranked choices. |
+| First-choice coverage | More distinct players receiving their number-one game at least once. |
+| Lottery | Randomized selection among eligible players. |
 
-All methods respect table capacity, player/GM availability, minimum/maximum groups, repeat limits, and the play format. Players cannot repeat an offering, sit at two tables simultaneously, or play while running a session under their selected GM identity. The GM coverage option prioritizes at least one session per GM, rather than one per adventure. Impossible coverage and unseated players are reported.
+Rules apply to every method:
 
-Scheduling uses a repeated greedy search, with fewer attempts for larger inputs. These are heuristic proposals, not guaranteed optimal allocations or audited lotteries. Review the draft and try another method if needed. Response and assignment CSVs are available for further review. Limits are 100 offerings, 30 slots, 16 parallel tables, and 2,000 responses; these are validation bounds, not performance guarantees for very large events.
+- **Require every player to receive their first choice:** every responding player must receive at least one rank-1 assignment before the schedule can be published. If the draft fails, affected players are listed and publication is blocked. Adjust capacity, offerings, availability, the method, or the requirement.
+- **Require at least one session per GM:** every distinct GM must have an allocated session before publication. This is across that GM’s offerings, not a requirement to run every offered adventure.
+- **Allow unranked games as fallbacks:** disabled by default. When enabled, an unranked game may be assigned. An explicit veto is always excluded.
+- **Maximum sessions per player:** `0` means up to all available slots; a positive number adds an event-wide cap. Single-session format always caps this at one.
 
-Include the final schedule in the player export, then **export a fresh `questionnaire.html`** and share/replace it. Players open their saved response JSON in the new file to see their personal assignments. The public plan has games, GMs, tables, seat counts, and anonymous assignment IDs, without player names. Organizer CSVs contain names.
+Player vetoes are hard exclusions. All methods also enforce slot availability, player limits, GM conflicts, maximum repeats, no concurrent double booking, and no player repeating an offering. A GM who also wants to play selects their GM identity in the questionnaire so they cannot be seated while running a game.
 
-Files are snapshots: old downloaded copies do not update automatically. Closing preferences or excluding a schedule from future exports cannot change previously distributed copies. Organizer changes to settings, games, slots, or imported responses clear the schedule; regenerate and re-export afterward.
+The scheduler searches multiple candidate schedules in the organizer’s browser. PHP independently validates the submitted result against the current shared data and rules; changing browser-side flags cannot bypass vetoes or publication requirements. Saving a schedule is rejected if the event changed during generation.
 
-## Cloud folders and HTTPS links
+The search is heuristic, not a mathematical proof of feasibility or optimality. A missing first choice in a draft does not prove that no valid schedule exists. Try another candidate/method or adjust the event. The tool never silently presents an unmet required guarantee as satisfied. Lottery is a randomized planning method, not an audited draw.
 
-For a **cloud-synced folder**, the browser edits local synced files; your existing cloud client handles transfer. The app installs no service and connects to no cloud accounts. Each player writes a separate response file. Let sync finish before importing or switching organizer computers.
+## Player workflow
 
-For a **cloud web folder**, use the provider’s normal upload/download interface for these same files. If it supports hosting HTML, share its `questionnaire.html` URL. Static hosting, including GitHub Pages, can serve the HTML without running app software. Hosting is optional; offline file sharing needs no setup.
+1. Open the permanent player link and enter a name the team recognizes.
+2. Choose priorities in the game list: `1` is the first choice. Selecting a rank inserts that game into the ordered choices and renumbers the others.
+3. Mark **Veto · never assign** for games that must be excluded. A veto cannot also be ranked.
+4. Expand **Availability** if any offered time slots do not work; all slots are initially selected. Game details and capacity are available under **More about this**.
+5. Click **Submit preferences**. The browser saves directly to the shared event on the host. No file needs to be downloaded, sent, or imported.
 
-An HTTPS page cannot write back to an arbitrary cloud folder merely because its HTML is stored there. Automatic remote writes require an authorized provider API or upload endpoint. This version uses native browser file operations plus existing cloud upload/sync facilities. Its proposed hosted questionnaire URL is only a convenience: upload the file there before sharing the link.
+The browser retains only a private edit credential; the authoritative preferences live on the server. Players can return in the same browser to update their response while preferences are open. Clearing browser storage or changing devices loses that credential; the organizers can look up assignments or remove duplicates. Anonymous player identity is not verified, and there are no email notifications.
 
-HTML files themselves have no password protection. Use cloud sharing permissions to keep organizer data private and share the questionnaire individually. Do not publish `event.json`, private response files, or organizer CSVs in a public repository or web directory.
+## Generate and publish
 
-## Backups and team use
+Close preferences in Event settings, then open **Schedule**. Its method comes from Assignment rules. Generate and inspect a draft, including unseated players, unmet first choices, and GM coverage. Publication is disabled and also refused by PHP while required guarantees are unmet.
 
-- Back up the entire event folder. `index.html` plus `event.json` is enough to continue organizing elsewhere; retain `responses/` for original submissions.
-- Use **one organizer editing `event.json` at a time**. Before saving, the app checks whether the visible file changed since opening and refuses to overwrite a changed file. This is not a distributed lock: simultaneous offline edits on synced devices can still cause cloud conflicts. Reload before switching editors.
-- Keep player response filenames stable when updating them. Use a separate folder per event.
-- Real event files, exported questionnaires, and responses are ignored by Git.
-- To migrate from the original server version, open its `data/event.json` using **Open event file**, then save into your event folder. Server-only edit credentials are discarded on import. Keep a copy of the original data directory before migrating.
+Publish when ready. The **same player link** now displays the schedule; players returning from their submitting browser see personal assignments. Open response/schedule views check for updates periodically. The public overview does not disclose player names or response edit credentials. Unpublish removes the public schedule immediately without distributing replacement HTML files.
 
-## For contributors only
+## Data, security, and backups
 
-**The generated `index.html` is committed and ready to use. End users run no commands.** Node.js 22+ is optional developer tooling for rebuilding/checking sources and running tests, with no external packages to install.
+- The authoritative shared store is `event-data.php`, in the same folder as the app. It holds configuration, responses, schedule, the hashed organizer password, response credential hashes, and bounded rate-limit metadata.
+- Reads/writes coordinate through PHP file locking; changes use an atomic temporary-file rename. Concurrent player requests update the current store without replacing each other’s responses.
+- Direct HTTP access to the data/lock PHP files returns 404 when PHP is configured correctly. Keep PHP execution enabled. Do not move the data file to a static-only public host.
+- Organizer sessions use HTTP-only, same-site cookies and last up to 12 hours, subject to host session retention. Writes require a CSRF token. Requests and collection sizes are bounded. Players cannot call organizer actions.
+- Basic IP limits apply to login attempts and response submissions. Proxied clients may share the same limit; forwarded client IPs are not trusted automatically.
+- Back up `event-data.php` privately for full recovery. To restore, take the app out of use briefly, replace this file with the backup, and reopen it. An organizer JSON export excludes credentials and is a review/export copy, not a complete restore package.
+- When updating the app, replace the HTML files and `api.php`; preserve the existing data file. Stop organizer editing briefly during an update. Do not sync an actively written data file across multiple running hosts: use one authoritative server.
+- This version supports one event per app folder, 100 offerings, 30 slots, 16 parallel tables, and 2,000 responses. These limits are validation bounds, not performance guarantees for very large events. Create another hosted folder for a separate event.
+
+## For contributors
+
+Production needs only the four root application files above. Node.js 22+ is optional development tooling for bundling/checking JavaScript and running tests. There are no npm dependencies to install. PHP is needed to run the actual server integration tests.
 
 ```sh
 npm run build
 npm run check
+php -l api.php
 npm test
 ```
 
+Set `PHP_BINARY` if PHP is not on PATH. Tests also recognize an ignored `test-results/php-runtime/php.exe` for local Windows checks. The PHP integration test uses a temporary app folder and exercises real HTTP submissions, concurrent clients, shared persistence, veto validation, first-choice publication blocking, privacy, CSRF protection, and restart recovery. It skips explicitly when no PHP executable is available.
+
 ```text
-index.html           Complete portable app; double-click to use
-organizer.html       Top-level organizer entry (identical to index.html)
-players.html         Top-level player entry; opens an exported questionnaire
-public/index.html    Source HTML template
-public/app.js        Interface and file pickers
-public/styles.css    Responsive light/dark styles
-lib/model.js         Browser-compatible event model and validation
-lib/scheduler.js     Scheduling methods
-lib/portable.js      File formats, imports, local actions, folder persistence
-scripts/build.mjs    Generates all three top-level HTML entry files
-test/                Scheduler, file workflow, and bundle checks
+index.html / organizer.html / players.html  Ready-to-upload entry pages
+api.php                                    Shared storage and validation
+public/                                    Interface/style source templates
+lib/model.js                               Browser model and validation
+lib/scheduler.js                           Assignment methods and rules
+lib/shared.js                              Same-origin PHP client
+scripts/build.mjs                          Bundles the three root HTML files
+test/                                      Scheduler, browser-bundle, and HTTP checks
 ```
 
-After changing source files, rebuild and commit all three top-level HTML files too. Checks cover scheduling constraints, import/update behavior, public export privacy, folder writes/conflicts, and the standalone HTML bundles. Direct folder access is an enhancement; ordinary file import/save remains available.
+Rebuild and commit all three HTML files after changing their source. The PHP handler is maintained directly at the repository root. The project has no Docker, separate database service, or production Node dependency.

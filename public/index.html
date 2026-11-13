@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
     <meta name="description" content="Bring your party together. Plan tabletop roleplaying events and find a seat for every adventurer.">
     <title>Tabletop · Event planner</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%237055a9'/%3E%3Cpath d='m24 7 15 10v16l-15 9-15-9V17Z M24 7l-8 23 23-13-15 25-8-12h17L24 7M9 17l24 13-24 3' fill='none' stroke='white' stroke-width='1.7'/%3E%3C/svg%3E">
@@ -15,10 +15,6 @@
     <div id="app"><main id="main" class="loading"><div class="brand-mark">◇</div><p>Setting the table…</p></main></div>
     <div id="toast" role="status" aria-live="polite"></div>
     <dialog id="modal" aria-labelledby="modal-title"></dialog>
-    <input type="file" id="event-file-input" accept=".json,application/json" hidden aria-label="Open event file">
-    <input type="file" id="response-files-input" accept=".json,application/json" multiple hidden aria-label="Import player response files">
-    <input type="file" id="my-response-input" accept=".json,application/json" hidden aria-label="Open my saved response">
-    <input type="file" id="questionnaire-file-input" accept=".html,.json,text/html,application/json" hidden aria-label="Open player questionnaire">
     <script type="application/json" id="tabletop-data">null</script>
     <script id="tabletop-code">/* APP_CODE */</script>
   </body>

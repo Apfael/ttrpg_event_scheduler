@@ -31,7 +31,8 @@ function assertConstraints(state, schedule) {
         const player = state.responses.find((r) => r.id === id);
         assert.ok(!players.has(id), 'player is never double booked'); players.add(id);
         assert.ok(player.availability.includes(slot.id));
-        assert.ok(player.preferences.includes(game.id));
+        assert.ok(player.preferences.includes(game.id) || state.event.allowUnranked);
+        assert.ok(!player.vetoes?.includes(game.id), 'explicit vetoes are never assigned');
         const key = `${id}:${game.id}`;
         assert.ok(!allPlayed.has(key), 'player never repeats an adventure'); allPlayed.add(key);
         totalForPlayer.set(id, (totalForPlayer.get(id) || 0) + 1);
@@ -44,6 +45,7 @@ function assertConstraints(state, schedule) {
   }
   for (const game of state.games) assert.ok((runs.get(game.id) || 0) <= game.runs);
   if (state.event.mode === 'free-choice') for (const total of totalForPlayer.values()) assert.equal(total, 1);
+  if (state.event.maxSessionsPerPlayer) for (const total of totalForPlayer.values()) assert.ok(total <= state.event.maxSessionsPerPlayer);
 }
 for (const method of METHODS) {
   test(`${method} respects capacity, availability, repeated games, and GM/player conflicts`, () => {
@@ -57,6 +59,24 @@ for (const method of METHODS) {
   test(`${method} respects single-session event mode`, () => {
     const state = fixture(); state.event.mode = 'free-choice';
     assertConstraints(state, generateSchedule(state, method, 8));
+  });
+  test(`${method} never overrides vetoes when unranked fallback is allowed and obeys player caps`, () => {
+    const state = fixture(); state.event.allowUnranked = true; state.event.maxSessionsPerPlayer = 1;
+    for (const player of state.responses) { player.preferences = [state.games[0].id]; player.vetoes = [state.games[3].id]; }
+    const schedule = generateSchedule(state, method, 14);
+    assertConstraints(state, schedule);
+    assert.ok(schedule.sessions.every((s) => s.gameId !== state.games[3].id));
+    assert.equal(schedule.validForPublication, false, 'required GM coverage cannot override vetoes');
+  });
+  test(`${method} satisfies a feasible first-choice guarantee and flags an impossible one`, () => {
+    const state = sampleState(); state.games = state.games.slice(0, 2).map((g) => ({ ...g, minPlayers: 2, maxPlayers: 2, runs: 1 }));
+    state.slots = state.slots.slice(0, 2); state.event.parallelTables = 1; state.event.requireFirstChoice = true;
+    state.responses = Array.from({ length: 4 }, (_, i) => ({ id: `p-${i}`, name: `Player ${i}`, gm: '', preferences: i < 2 ? [state.games[0].id, state.games[1].id] : [state.games[1].id, state.games[0].id], vetoes: [], availability: state.slots.map((s) => s.id) }));
+    let schedule = generateSchedule(state, method, 11);
+    assert.equal(schedule.unmetFirstChoices.length, 0); assert.equal(schedule.validForPublication, true); assertConstraints(state, schedule);
+    for (const r of state.responses) r.preferences = [state.games[0].id, state.games[1].id];
+    schedule = generateSchedule(state, method, 11);
+    assert.equal(schedule.unmetFirstChoices.length, 2); assert.equal(schedule.validForPublication, false);
   });
 }
 test('impossible GM coverage and unseated players are reported without breaking minimum group sizes', () => {
@@ -100,4 +120,6 @@ test('game, event, and response validation reject malformed scheduling inputs', 
   assert.throws(() => validateResponse({ ...response, preferences: [game.id, game.id] }, state));
   assert.throws(() => validateResponse({ ...response, availability: [] }, state));
   assert.throws(() => validateResponse({ ...response, gm: 'Unknown GM' }, state));
+  assert.throws(() => validateResponse({ ...response, vetoes: [game.id] }, state));
+  assert.throws(() => validateEvent({ ...state.event, assignmentMethod: 'unknown' }));
 });

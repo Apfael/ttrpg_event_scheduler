@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, copyFile, readFile, writeFile, rm, access } from 'node:fs/promises';
@@ -6,9 +6,24 @@ import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
 import { once } from 'node:events';
 import { SharedPlanner } from '../lib/shared.js';
+import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 let php = process.env.PHP_BINARY;
+let extractedRuntime;
+if (!php && process.platform === 'win32') {
+  const manifest = JSON.parse(await readFile(resolve(root, 'runtime/manifest.json'), 'utf8'));
+  const archivePath = resolve(root, 'runtime', manifest.archive);
+  assert.equal(createHash('sha256').update(await readFile(archivePath)).digest('hex'), manifest.archiveSha256);
+  const testRoot = resolve(root, 'test-results'); await mkdir(testRoot, { recursive: true });
+  extractedRuntime = await mkdtemp(resolve(testRoot, 'api-runtime-'));
+  const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+  const command = `Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory(${literal(archivePath)}, ${literal(extractedRuntime)})`;
+  const prepared = spawnSync(resolve(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-Command', command], { encoding: 'utf8', windowsHide: true });
+  assert.equal(prepared.status, 0, prepared.stderr);
+  php = resolve(extractedRuntime, 'php.exe');
+  after(async () => { assert.ok(extractedRuntime.startsWith(testRoot + sep)); await rm(extractedRuntime, { recursive: true, force: true }); });
+}
 if (!php) {
   const portable = resolve(root, 'test-results/php-runtime/php.exe');
   try { await access(portable); php = portable; }

@@ -160,7 +160,13 @@ function save_store(array $store): void {
     try {
         if (file_put_contents($temporary, $content) !== strlen($content)) throw new RuntimeException('Incomplete data write.');
         @chmod($temporary, 0600);
-        if (!rename($temporary, DATA_FILE)) throw new RuntimeException('Could not commit shared event data.');
+        // A cloud-sync client or virus scanner can briefly hold a Windows file.
+        $committed = false;
+        foreach ([0, 50000, 100000, 200000] as $delay) {
+            if ($delay) usleep($delay);
+            if (@rename($temporary, DATA_FILE)) { $committed = true; break; }
+        }
+        if (!$committed) throw new RuntimeException('Could not commit shared event data.');
     } finally { if (is_file($temporary)) @unlink($temporary); }
 }
 function limit_attempt(array &$store, string $kind, int $maximum, int $seconds): void {

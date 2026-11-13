@@ -1,10 +1,34 @@
 # Tabletop · shared TTRPG event planner
 
-**[Organizer](organizer.html) · [Players](players.html) · [Hosting](#put-the-app-online)**
+**[Start locally](Start%20Tabletop.cmd) · [Start on LAN](Start%20Tabletop%20LAN.cmd) · [Stop](Stop%20Tabletop.cmd) · [Organizer](organizer.html) · [Players](players.html)**
 
 One hosted app, one shared event. Organizers configure games and rules, share the player link, and receive preferences automatically. Players submit in their browser. All changes go to the same protected event data file beside the app. No questionnaire exports, response files, uploads by players, or manual imports.
 
 The player questionnaire is a compact list of **game name, GM, and priority**. Capacity, system, adventure name, and descriptions are hidden under **More about this**. The interface adapts to phones and desktops and follows the system’s light/dark theme.
+
+## Run directly from a cloud-synced folder
+
+On **64-bit Windows 10 or 11**, download/extract the complete repository or sync its folder, then double-click **Start Tabletop.cmd** in File Explorer. On GitHub, use **Download ZIP** first; clicking a `.cmd` link there displays the file rather than running it.
+
+The launcher opens your browser at the local organizer page. PHP and the required app-local Microsoft runtime DLL are bundled in `runtime/php-windows-x64.zip`; the first start unpacks and verifies them automatically. Nothing is installed, downloaded, added to PATH, or registered as a Windows service. No administrator account, global PHP, Node, Docker, database, or separate Visual C++ installation is required. Windows PowerShell and .NET supplied with Windows run the launcher.
+
+- Keep the complete app folder in OneDrive, Dropbox, Nextcloud, or another locally synced folder. Make its files available offline before starting.
+- First use: choose the organizer password in the browser. Existing events open with their existing login and data.
+- Event data remains in **`event-data.php` beside the app**. The launcher never replaces or deletes it.
+- **Stop Tabletop.cmd** stops this folder’s server. Closing the browser does not stop it. Starting again reopens the existing server; restarting after a stop normally reuses its port.
+- The usual address is `http://127.0.0.1:8787/organizer.html`. If that port is busy, the launcher chooses another free port and opens the correct URL automatically.
+- Machine-specific runtime extraction, PHP sessions, process state, and logs stay under `.tabletop-local/` in the same folder. This cache is ignored by Git. Each computer has its own cache subfolder.
+- To move the event, stop the app, let cloud sync finish, then start it from the complete synced folder on the next computer. Use **one running host per event**: cloud sync does not coordinate simultaneous writers on different computers.
+
+### Let players connect over your local network
+
+Use **Start Tabletop LAN.cmd** instead of the local-only launcher. It opens the organizer page using this computer’s LAN address, so **Share player link** produces a link other devices on that network can reach. Keep the host computer running and awake. If Windows Firewall asks, permit access on your trusted private network. The launcher does not change firewall rules or configure port forwarding.
+
+Stop the current instance before switching between local-only and LAN mode. The local-only launcher listens on this computer only; the LAN launcher listens on its network interfaces. Its router exposes only the app pages and API, not the runtime archive, repository, session files, or event data file. The local server is intended for controlled local use; use HTTPS-capable web hosting for a public Internet event. PHP’s [built-in server documentation](https://www.php.net/manual/en/features.commandline.webserver.php) explains that distinction.
+
+Players must reach the **same running instance**. A cloud-drive sharing link alone does not expose a local server to remote Internet users, and every player should not launch their own copy. The cloud client backs up/transfers the data; the running app handles submissions.
+
+If startup fails, its console shows the reason and keeps the window open. Diagnostic logs are in `.tabletop-local/<machine>/server.stderr.log`. The launcher checks archive and extracted-file hashes at startup. Restore a damaged runtime from the repository rather than installing anything. The bundled runtime is Windows x64; other operating systems can use the hosted PHP version below.
 
 ## Put the app online
 
@@ -30,7 +54,7 @@ PHP creates `event-data.php` and `event-lock.php` in the same folder. The first 
 
 If the app reports a write failure, grant the hosting account’s PHP process write access to this folder using the host’s file manager. If PHP is downloaded or displayed as text, that hosting location is not executing PHP and is unsuitable. Opening HTML by double-clicking it is also insufficient for shared automatic saving; use the hosted HTTPS link.
 
-This is portable between compatible PHP hosts: move the app files and its existing `event-data.php` together. It cannot run automatically in an arbitrary cloud storage folder without a server-side execution/write facility. Ordinary OneDrive/Google Drive/Dropbox file previews are not PHP hosting.
+This is portable between compatible PHP hosts: move the app files and its existing `event-data.php` together. For a locally synced cloud folder, use the bundled Windows launcher above. Ordinary cloud-drive browser previews are not PHP hosting.
 
 ## Organizer workflow
 
@@ -111,10 +135,15 @@ php -l api.php
 npm test
 ```
 
-Set `PHP_BINARY` if PHP is not on PATH. Tests also recognize an ignored `test-results/php-runtime/php.exe` for local Windows checks. The PHP integration test uses a temporary app folder and exercises real HTTP submissions, concurrent clients, shared persistence, veto validation, first-choice publication blocking, privacy, CSRF protection, and restart recovery. It skips explicitly when no PHP executable is available.
+On Windows, tests can use the bundled runtime without global PHP. On other systems, set `PHP_BINARY` if PHP is not on PATH. The PHP integration test uses a temporary app folder and exercises real HTTP submissions, concurrent clients, shared persistence, veto validation, first-choice publication blocking, privacy, CSRF protection, and restart recovery. It skips explicitly when no compatible PHP executable is available. Windows launcher checks cover relocation into a path with spaces/quotes, startup without global PHP/Node, duplicate launches, private-file routing, same-folder persistence, safe shutdown, and restart.
 
 ```text
 index.html / organizer.html / players.html  Ready-to-upload entry pages
+Start Tabletop.cmd                         Portable local launch (Windows x64)
+Start Tabletop LAN.cmd                     Portable private-LAN launch
+Stop Tabletop.cmd                          Stop this folder's server
+portable/                                  Launcher and restricted local router
+runtime/                                   Bundled PHP ZIP, manifest, and notices
 api.php                                    Shared storage and validation
 public/                                    Interface/style source templates
 lib/model.js                               Browser model and validation
@@ -125,3 +154,9 @@ test/                                      Scheduler, browser-bundle, and HTTP c
 ```
 
 Rebuild and commit all three HTML files after changing their source. The PHP handler is maintained directly at the repository root. The project has no Docker, separate database service, or production Node dependency.
+
+### Runtime provenance and updates
+
+This product includes PHP software, freely available from <https://www.php.net/software/>. The bundle contains unmodified PHP 8.4.27 binaries from the official Windows NTS x64 ZIP and an unmodified Microsoft `vcruntime140.dll` from the Visual Studio 2022 x64 REDIST directory. Licenses and original third-party notices are inside the ZIP; see [runtime notices](runtime/THIRD-PARTY-NOTICES.md) and [checksums/provenance](runtime/manifest.json).
+
+To rebuild this checked-in bundle, developers can run `scripts/package-runtime.ps1 -PhpArchive <official-zip> -VcRedistDirectory <licensed-VS-x64-REDIST-directory>`. The script verifies the pinned upstream checksum and Microsoft signature, then writes a deterministic subset ZIP and manifest. End users do not run it. Runtime updates should update the pinned source/checksum, bundle, notices, and tests together. No first-run download is used.

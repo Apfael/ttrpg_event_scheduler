@@ -12,3 +12,4 @@ responses/
 event-data.php
 event-lock.php
 event-temp-*.php
+.tabletop-local/

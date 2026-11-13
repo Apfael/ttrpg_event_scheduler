@@ -314,7 +314,7 @@ window.addEventListener('hashchange', () => {
 });
 $('#modal').addEventListener('click', (event) => { if (event.target === $('#modal')) $('#modal').close(); });
 try {
-  if (location.protocol === 'file:') throw new Error('Open the hosted app URL. Automatic shared saving needs the HTML files and api.php in the same PHP-enabled web folder.');
+  if (location.protocol === 'file:') throw new Error('On Windows, use Start Tabletop.cmd to open this app. Or use its hosted web URL. Shared saving needs the app server to be running.');
   if (playerMode) await loadPlayer();
   else { const auth = await api('/api/auth'); setupNeeded = !auth.initialized; if (auth.authenticated) { data = await api('/api/admin'); renderOrganizer(); } else renderLogin(); }
 } catch (error) {

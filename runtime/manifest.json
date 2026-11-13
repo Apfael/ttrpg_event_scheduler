@@ -1,0 +1,43 @@
+{
+    "phpVersion":  "8.4.27",
+    "upstreamBuild":  "8.4.27-1",
+    "platform":  "windows-x64",
+    "minimumOs":  "Windows 10 x64",
+    "upstreamUrl":  "https://downloads.php.net/~windows/releases/php-8.4.27-1-nts-Win32-vs17-x64.zip",
+    "upstreamSha256":  "dbae154a0a89791f36c3d48e68bae797878333e7d6cb5721e74617de59b63ab7",
+    "vcRuntimeVersion":  "14.42.34438.0",
+    "archive":  "php-windows-x64.zip",
+    "archiveSha256":  "403395933aeb451f9123ee07161d46f856d33c353ef1b8adbd2de107f1aa4fa2",
+    "files":  [
+                  {
+                      "path":  "license.txt",
+                      "size":  3272,
+                      "sha256":  "098bdc5b9808fc16bef4b7154e876ac08ca249549727cde3b3f3f3b431e27cca"
+                  },
+                  {
+                      "path":  "php.exe",
+                      "size":  183808,
+                      "sha256":  "69f59f1e561c24c5204800ad8ecc1585d79dfa03d07a644d66f4241c86b5991e"
+                  },
+                  {
+                      "path":  "php8.dll",
+                      "size":  11515904,
+                      "sha256":  "d3ab8a382818c1d937e8d88464bda8c031aa73179ae092ba8a660f1c8ff87661"
+                  },
+                  {
+                      "path":  "readme-redist-bins.txt",
+                      "size":  760774,
+                      "sha256":  "c24722e9e3c627e3c7e8a5efd50c5c0aa1d9f689c3e03dc28a632f1f6218ca5e"
+                  },
+                  {
+                      "path":  "THIRD-PARTY-NOTICES.md",
+                      "size":  1759,
+                      "sha256":  "f1d0c9cd116c84ff8e1fd272b993d3f4af51a197ab5a71cb42a7488e00216d08"
+                  },
+                  {
+                      "path":  "vcruntime140.dll",
+                      "size":  120400,
+                      "sha256":  "052ad6a20d375957e82aa6a3c441ea548d89be0981516ca7eb306e063d5027f4"
+                  }
+              ]
+}

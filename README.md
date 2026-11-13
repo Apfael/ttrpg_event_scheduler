@@ -1,143 +1,109 @@
-# Tabletop · TTRPG event planner
+# Tabletop · portable TTRPG event planner
 
-A small, self-hosted web app for bringing a roleplaying event together: define the games and dates, collect ranked player preferences, and generate a table schedule. The interface follows the device’s light/dark theme, with a manual theme switch. The player questionnaire is designed for phones; the organizer workspace makes good use of a desktop screen and also adapts to smaller devices.
+**Open `index.html` in your browser. Nothing to install.** No Docker, Node server, package installation, account, or application setup is needed to use this tool. The checked-in HTML file contains all styles, scripts, scheduling logic, and icons. It works offline.
 
-This first version supports **one event per server**, with a shared organizer password. It uses plain HTML, CSS, browser JavaScript, and a Node.js server. There are **no external packages, build step, accounts for players, or third-party services**.
+Keep the app and its data together in a local or cloud-synced folder:
 
-## Run locally
-
-Install **Node.js 22 or later**. From this repository:
-
-```sh
-npm start
+```text
+Our gathering/
+  index.html               Complete organizer app
+  event.json               Roster, dates, responses, and schedule
+  questionnaire.html       Exported player questionnaire / released schedule
+  responses/
+    response-<id>.json      One response file per player
 ```
 
-Open:
+The app creates `event.json` when you open a writable folder. Export `questionnaire.html` when ready to invite players; players create the response files. **Event data lives in these files alongside the app, rather than browser local storage.** Only the light/dark theme uses browser storage.
 
-- Organizer workspace: [http://localhost:3000/organizer](http://localhost:3000/organizer)
-- Player questionnaire: [http://localhost:3000/play](http://localhost:3000/play)
+## Open and save an event
 
-On the first run, the server creates a random organizer password in `data/organizer-key.txt`. Open that file locally and use its contents to sign in. Alternatively, set `ORGANIZER_PASSWORD` to a unique password of at least 12 characters before starting the server. The `data/` folder is excluded from Git.
+1. Download `index.html` using GitHub’s **Download raw file**, or copy it from your checkout. Put it in the folder for your event, including a cloud-synced folder on your computer.
+2. Double-click it to open in a modern browser. If your cloud service shows an HTML preview, download/open the file in the browser instead.
+3. In supported desktop browsers, click **Open event folder**, select the folder containing the app, and allow the browser’s folder access prompt. The app opens `event.json` if present; otherwise it writes the displayed event there. Subsequent organizer changes save directly to that file.
+4. In other browsers, use **Open event file** and **Save event file**. Save/move the resulting `event.json` beside the app, replacing the previous copy. A downloaded `event (1).json` is another copy, not an update to the original.
 
-No `npm install` is needed. For development, `npm run dev` restarts the server after server-side edits; refresh the browser after changing frontend files.
+The top banner shows whether a folder is connected or changes are only in the current tab. **Save before closing when no folder is open.** When reopening the app, open its folder/event file again. Copy or sync the whole folder to move the event to another computer.
 
-## Plan an event
+Direct folder access uses the browser’s [directory picker API](https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker), which is supported in Chromium desktop browsers such as Chrome and Edge but is not universal. Phones and other browsers use file import/save/download instead. Browser permission is necessary: an HTML file cannot silently read or overwrite neighboring files. No extension is required.
 
-1. **Explore or start fresh.** The first run includes six example adventures and three future time slots, with no player responses. Use **Overview → Try sample responses** to test scheduling with 18 clearly marked sample players. Use **Event settings → Create a blank event** before setting up a real gathering. This replaces the sample data and creates a new event identity.
-2. **Set up the event.** Enter a name, location, introduction, and IANA time zone (for example `Europe/Berlin`). Choose the number of parallel tables, whether to prioritize a session for every GM, and a play format:
-   - **Rotation:** a player may join one game in each available slot.
-   - **Single session:** a player may join at most one game over the whole event.
-3. **Add time slots.** Set the date, start time, end time, and a readable label for each play window. Times are local to the event time zone. Slots cannot overlap; use parallel tables for concurrent games. Leave gaps for meals and breaks. Each session occupies one whole slot. Split overnight play into separate slots on their respective dates.
-4. **Build the game roster.** Each offering has a title, GM, minimum and maximum player counts (excluding the GM), and maximum number of sessions. Optional fields include game system, adventure name, a short description, and longer adventure notes. Long notes expand on click/tap, rather than relying on hover. A game’s allowed slots express its GM’s availability; checking every slot means it also becomes available in future slots you add. Separate offerings by the same GM share the same GM identity; use consistent names.
-5. **Invite players.** Click **Share player link** and distribute the public `/play` URL. Players enter a name, rank games they are willing to play, and select available slots. Selecting a rank inserts that game into the ordered wishlist and renumbers the other choices. Unranked games will never be assigned. A GM who also wants to play should select their GM identity so the scheduler avoids conflicts with their own games.
-6. **Close preferences.** Turn off **Accept player preferences** in Event settings and save. Refresh Player responses before reviewing the final list. You can export the responses as CSV.
-7. **Generate and review.** In Schedule, choose a method and generate a private draft. Review unseated players and GM coverage warnings; try another method or change the offering/slot setup if needed. Export the table and player assignments as CSV if you want to adjust the result outside the app.
-8. **Publish.** Publish the schedule when ready. Players return to the **same `/play` link**. The browser used to submit their preferences shows their personal assignments. The public schedule lists games, GMs, tables, and seat counts, without disclosing player names. Unpublish to remove the public schedule.
+## Plan the gathering
 
-Players can update their submission from the same browser while preferences are open. Their private edit credential is saved in browser local storage; it survives a server restart. Clearing browser storage or switching devices loses that access. Organizers can look up assignments or remove a duplicate response. Players do not receive email notifications.
+The initial layout has six sample adventures and three future play windows, without fake player responses. **Overview → Try sample responses** adds 18 clearly marked sample players. Use **Event settings → Create a blank event** before configuring a real event. Use a separate folder per event.
 
-**Changes to event settings, games, slots, or responses clear any generated/published schedule.** Regenerate and republish after changes. Reopening preferences therefore starts another planning round.
+- **Event settings:** enter the name, location, introduction, and IANA time zone (for example `Europe/Berlin`). Set parallel table count and whether every GM should receive at least one session. Choose **Rotation** for one adventure per available slot, or **Single session** for at most one session per player over the entire event.
+- **Time slots:** enter date, start/end times, and a label. Times are local to the event time zone. Slots cannot overlap; use parallel tables for simultaneous games. Leave gaps for breaks. Each session occupies one slot; split overnight play at midnight.
+- **Game roster:** define title, GM, minimum/maximum players excluding the GM, maximum repeat sessions, and allowed slots. Adventure name, game system, short description, and expandable long notes are optional. Use consistent GM names across offerings; case and surrounding spaces do not create separate identities.
 
-## How scheduling works
+Selecting every current slot makes a game available in future slots too. If the last explicitly allowed slot is deleted, the offering remains unavailable until you edit its allowed slots.
 
-Three methods are available:
+## Share the questionnaire and collect files
+
+1. Choose **Share questionnaire → Save questionnaire HTML**. With an event folder connected, this writes `questionnaire.html` beside the app. Otherwise, save/move it there yourself.
+2. Share that file or its individual cloud link. It includes games, dates, and any released schedule, but **no organizer response list or player names**. Keep `event.json` accessible only to your organizer team.
+3. Players open it in a browser, enter a name, rank games, and choose available slots. Unranked games are never assigned. A GM who also wants to play selects their GM identity to prevent conflicts with running a session.
+4. **Save my response file** creates `response-<id>.json`. Players put it in the shared `responses` subfolder, upload it using the cloud provider’s ordinary file interface, or send it to the organizers. Supported browsers also offer **Save into event folder**, which writes into the selected folder’s `responses` subfolder.
+5. After cloud sync completes, organizers choose **Read response folder**, or **Import responses** to select received JSON files. New response IDs are added, newer versions update existing entries, and repeated imports do not create duplicates. Manual imports reject other-event files; folder scans skip them.
+
+To update preferences, players use **Open my saved response** to load their original JSON before editing. Saving increments that response’s version. Starting again without loading the original produces a new ID; organizers can remove accidental duplicates. Removed response IDs remain excluded during future imports until **Allow importing them again** is selected. Conflicting equal versions are rejected, and older versions cannot replace newer ones.
+
+**Saving a response creates a file; it does not upload it.** The organizer receives the choices only after the file reaches the event folder and is imported. Cloud-drive previews may not execute HTML; players can download and open the file instead.
+
+## Schedule and share the result
+
+Close preferences in Event settings, import the final responses, and choose a method in **Schedule**:
 
 | Method | Focus |
 | --- | --- |
-| Balanced | Seat more distinct players and spread opportunities across the event, while considering rankings. |
-| Preference first | Give greater weight to higher-ranked games, while also rewarding participation. |
-| Lottery | Randomize selection among players willing to join a game, while seeking broad participation. |
+| Balanced | Seat more distinct players and spread opportunities while considering rankings. |
+| Preference first | Give greater weight to higher-ranked games. |
+| Lottery | Randomize selection among willing players while seeking broad participation. |
 
-All methods enforce minimum/maximum group sizes, player availability, game/GM availability, maximum repeats, table capacity, and one concurrent session per GM. Players cannot repeat the same offering, sit at two tables at once, or play while running a game under their selected GM identity. The GM coverage option prioritizes **one session per GM**, rather than requiring every adventure offered by that GM to run.
+All methods respect table capacity, player/GM availability, minimum/maximum groups, repeat limits, and the play format. Players cannot repeat an offering, sit at two tables simultaneously, or play while running a session under their selected GM identity. The GM coverage option prioritizes at least one session per GM, rather than one per adventure. Impossible coverage and unseated players are reported.
 
-The scheduler uses a seeded, repeated greedy search. The number of search attempts scales down for larger events. It is a **heuristic**, not a proof of an optimal or feasible schedule. GM coverage is a soft goal: insufficient demand, availability, or tables can make it impossible, and the draft reports unmet goals. A maximum session count is a limit, not a promise that all repeats will run. Lottery results are randomized proposals, not an audited drawing. The three methods are planning aids, not guarantees of seats or first choices.
+Scheduling uses a repeated greedy search, with fewer attempts for larger inputs. These are heuristic proposals, not guaranteed optimal allocations or audited lotteries. Review the draft and try another method if needed. Response and assignment CSVs are available for further review. Limits are 100 offerings, 30 slots, 16 parallel tables, and 2,000 responses; these are validation bounds, not performance guarantees for very large events.
 
-The app is intended for small community events. Limits are 100 offerings, 30 slots, 16 parallel tables, and 2,000 responses; the upper limits are validation bounds, not a performance guarantee. Avoid simultaneous scheduling requests for large events. Manual drag-and-drop schedule editing, multiple event management, individual organizer accounts, and authenticated player identity are future extensions.
+Include the final schedule in the player export, then **export a fresh `questionnaire.html`** and share/replace it. Players open their saved response JSON in the new file to see their personal assignments. The public plan has games, GMs, tables, seat counts, and anonymous assignment IDs, without player names. Organizer CSVs contain names.
 
-## Put it on a cloud server
+Files are snapshots: old downloaded copies do not update automatically. Closing preferences or excluding a schedule from future exports cannot change previously distributed copies. Organizer changes to settings, games, slots, or imported responses clear the schedule; regenerate and re-export afterward.
 
-The HTML is served by the Node server, which writes all shared event data and responses to a JSON file on the server’s disk. A static HTML file or GitHub Pages alone cannot persist shared responses. **This repository is ready to deploy; committing or pushing it does not automatically host it.**
+## Cloud folders and HTTPS links
 
-Use a VPS or another host that runs a long-lived Node process with persistent disk, or use Docker. Give players an HTTPS URL on that server. Do not share a localhost URL with remote players.
+For a **cloud-synced folder**, the browser edits local synced files; your existing cloud client handles transfer. The app installs no service and connects to no cloud accounts. Each player writes a separate response file. Let sync finish before importing or switching organizer computers.
 
-### Docker Compose
+For a **cloud web folder**, use the provider’s normal upload/download interface for these same files. If it supports hosting HTML, share its `questionnaire.html` URL. Static hosting, including GitHub Pages, can serve the HTML without running app software. Hosting is optional; offline file sharing needs no setup.
 
-1. Copy `.env.example` to `.env` and set a long, unique organizer password. The example password must be replaced.
-2. For a public server, set `PUBLIC_URL=https://games.example.org` to your actual domain. Set `TRUST_PROXY=true` only when requests reach the app through your own HTTPS reverse proxy.
-3. Build and run:
+An HTTPS page cannot write back to an arbitrary cloud folder merely because its HTML is stored there. Automatic remote writes require an authorized provider API or upload endpoint. This version uses native browser file operations plus existing cloud upload/sync facilities. Its proposed hosted questionnaire URL is only a convenience: upload the file there before sharing the link.
 
-```sh
-docker compose up -d --build
-```
+HTML files themselves have no password protection. Use cloud sharing permissions to keep organizer data private and share the questionnaire individually. Do not publish `event.json`, private response files, or organizer CSVs in a public repository or web directory.
 
-The app listens on `127.0.0.1:3000` on the host. The named `planner-data` volume preserves responses when the container is recreated. Keep that volume; `docker compose down -v` removes it.
+## Backups and team use
 
-Place your HTTPS reverse proxy in front of port 3000. For example, a host-installed Caddy server can use this Caddyfile after pointing your domain’s DNS at your server:
+- Back up the entire event folder. `index.html` plus `event.json` is enough to continue organizing elsewhere; retain `responses/` for original submissions.
+- Use **one organizer editing `event.json` at a time**. Before saving, the app checks whether the visible file changed since opening and refuses to overwrite a changed file. This is not a distributed lock: simultaneous offline edits on synced devices can still cause cloud conflicts. Reload before switching editors.
+- Keep player response filenames stable when updating them. Use a separate folder per event.
+- Real event files, exported questionnaires, and responses are ignored by Git.
+- To migrate from the original server version, open its `data/event.json` using **Open event file**, then save into your event folder. Server-only edit credentials are discarded on import. Keep a copy of the original data directory before migrating.
 
-```caddyfile
-games.example.org {
-    reverse_proxy 127.0.0.1:3000
-}
-```
+## For contributors only
 
-Allow ports 80/443 to reach the proxy. Keep the Node port private. The resulting links are:
-
-- `https://games.example.org/organizer` — password-protected setup, responses, and scheduling.
-- `https://games.example.org/play` — share this with your players.
-
-For local Docker use, leave `PUBLIC_URL=http://localhost:3000` and `TRUST_PROXY=false`. For access through another hostname, set `PUBLIC_URL` to exactly that origin (scheme, hostname, and port).
-
-### Run Node directly
-
-Set environment variables using your host or service manager, then run `npm start`. For example, in PowerShell:
-
-```powershell
-$env:ORGANIZER_PASSWORD = 'your-long-unique-password'
-$env:HOST = '127.0.0.1'
-$env:PORT = '3000'
-$env:DATA_DIR = 'D:\tabletop-data'
-$env:PUBLIC_URL = 'https://games.example.org'
-$env:TRUST_PROXY = 'true'
-npm start
-```
-
-Use a service manager to restart the process on boot. Put an HTTPS reverse proxy in front of it. `npm start` does **not** automatically read `.env`; `.env` is consumed by Docker Compose, or you can use Node’s `--env-file=.env` flag explicitly.
-
-| Environment variable | Default | Purpose |
-| --- | --- | --- |
-| `HOST` | `127.0.0.1` | Bind address; the Docker image uses `0.0.0.0` inside the container. |
-| `PORT` | `3000` | HTTP port. |
-| `DATA_DIR` | `./data` relative to the app | Persistent storage directory. |
-| `ORGANIZER_PASSWORD` | Generated local key | Shared organizer password, at least 12 characters. |
-| `PUBLIC_URL` | Current request origin | Expected browser origin for write requests. Set to the public HTTPS URL when hosted. |
-| `TRUST_PROXY` | `false` | Trust the HTTPS scheme forwarded by your reverse proxy. |
-
-Organizer sessions last 12 hours and are cleared on server restart. Shared passwords, session cookies, and player edit credentials should be treated as private. Password-protected endpoints guard roster writes and response access; requests use same-origin checks, strict cookies, input validation, and bounded bodies. Anonymous player submissions are intentionally open, with basic IP rate limits, so the app does not verify player identity or prevent all duplicates. Forwarded client IPs are not trusted: behind a proxy the submission limit is shared (30 writes/minute), and login attempts are limited to 10 per 15 minutes.
-
-## Data and backups
-
-- The authoritative file is `DATA_DIR/event.json`. Writes are serialized and use a temporary file plus rename, so readers do not see a half-written JSON document.
-- Run **one server instance per data directory**. The JSON store is not a distributed database and does not support several processes writing the same file. Use a persistent volume, not ephemeral container/serverless disk.
-- **Download JSON** in Event settings exports configuration, responses, and schedule for review, without response edit credentials. It is not an in-app restore package.
-- For a full backup, stop the app briefly and copy the entire data directory (or snapshot the Docker volume). Restore that directory/volume before restarting to retain event identities and player edit access. Keep backups private. The app does not send data to another service.
-- Keep `data/`, `.env`, passwords, and real player exports out of Git. Data is kept until organizers remove it or replace the event; agree on retention with your group.
-- If the server cannot load the data file, it stops instead of overwriting it with sample data.
-
-## Repository and checks
-
-```text
-public/            HTML, responsive styles, and browser interface
-lib/model.js       Sample event and input validation
-lib/scheduler.js   Scheduling methods and constraint handling
-server.js          HTTP routes, organizer authentication, JSON persistence
-test/              Scheduling invariants and real HTTP workflow tests
-```
+**The generated `index.html` is committed and ready to use. End users run no commands.** Node.js 22+ is optional developer tooling for rebuilding/checking sources and running tests, with no external packages to install.
 
 ```sh
+npm run build
 npm run check
 npm test
 ```
 
-Tests cover capacity, availability, GM/player conflicts, single-session mode, repeat limits, infeasible coverage, validation, protected writes, player updates, publication privacy, and restart persistence. API tests use a temporary data directory and do not change the event in your local `data/` folder.
+```text
+index.html           Complete portable app; double-click to use
+public/index.html    Source HTML template
+public/app.js        Interface and file pickers
+public/styles.css    Responsive light/dark styles
+lib/model.js         Browser-compatible event model and validation
+lib/scheduler.js     Scheduling methods
+lib/portable.js      File formats, imports, local actions, folder persistence
+scripts/build.mjs    Generates the checked-in index.html
+test/                Scheduler, file workflow, and bundle checks
+```
 
-This repo does not require a cloud account, CDN, online fonts, or internet access at runtime. It can also run on a local network for an in-person gathering: bind to an appropriate network interface and share the server’s LAN address. Use HTTPS for a public deployment.
+After changing source files, rebuild and commit `index.html` too. Checks cover scheduling constraints, import/update behavior, public export privacy, folder writes/conflicts, and the standalone HTML bundle. Direct folder access is an enhancement; ordinary file import/save remains available.

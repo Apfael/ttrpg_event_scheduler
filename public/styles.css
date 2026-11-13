@@ -110,6 +110,12 @@
   .icon-button .icon { width: 17px; height: 17px; }
   .icon-button:hover { background: var(--accent-soft); color: var(--accent); }
   .main-content { max-width: 1580px; margin: 0 auto; padding: 38px 39px 0; }
+  .storage-banner { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 17px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-bottom: 28px; }
+  .storage-banner > div:first-child { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .storage-banner > div > .icon { color: var(--accent); width: 18px; }
+  .storage-banner strong { display: block; font-size: 11px; font-weight: 600; }
+  .storage-banner small { display: block; font-size: 10px; margin-top: 4px; }
+  .open-response { margin-bottom: 20px; }
   .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 25px; }
   .eyebrow { font-size: 9px; font-weight: 700; letter-spacing: 1.7px; color: var(--accent); margin-bottom: 11px; }
   .page-heading p { font-size: 12px; margin-top: 10px; }
@@ -481,6 +487,8 @@
     .topbar { height: 58px; padding-inline: 19px; }.breadcrumb { max-width: 47%; gap: 7px; }.breadcrumb > span, .topbar .breadcrumb { font-size: 0; }.breadcrumb strong { font-size: 10px; }
     .topbar .button { min-height: 34px; font-size: 10px; padding-inline: 9px; }
     .main-content { padding: 28px 18px 0; }.eyebrow { font-size: 8px; letter-spacing: 1.5px; }
+    .storage-banner { flex-wrap: wrap; padding: 17px; }
+    .storage-banner small { font-size: 11px; }
     .page-heading { gap: 19px; }.page-heading h1 { font-size: 29px; letter-spacing: -.9px; }.page-heading p { font-size: 12px; line-height: 1.8; }
     .page-heading > .button { font-size: 12px; }
     .event-meta { margin-top: 20px; font-size: 10px; gap: 10px 16px; }

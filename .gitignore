@@ -5,3 +5,7 @@ data/
 coverage/
 .DS_Store
 test-results/
+event.json
+questionnaire.html
+response-*.json
+responses/

@@ -1,3 +1,5 @@
+import { PortablePlanner, publicSnapshot, responseEnvelope, parseJsonFile, MAX_FILE_BYTES, writeHandle } from '../lib/portable.js';
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const icons = {
@@ -28,7 +30,6 @@ const initials = (name) => name.split(/\s+/).slice(0, 2).map((s) => s[0]).join('
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function storageGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function storageSet(key, value) { try { localStorage.setItem(key, value); return true; } catch { return false; } }
-function storageRemove(key) { try { localStorage.removeItem(key); } catch {} }
 let theme = storageGet('tabletop-theme') || 'system';
 if (!['system', 'light', 'dark'].includes(theme)) theme = 'system';
 const media = matchMedia('(prefers-color-scheme: dark)');
@@ -36,19 +37,12 @@ const applyTheme = () => { document.documentElement.dataset.theme = theme === 's
 applyTheme(); media.addEventListener('change', applyTheme);
 const themeButton = () => `<button class="icon-button" data-action="theme" title="Theme: ${theme}. Click to change." aria-label="Theme: ${theme}. Click to change.">${icon(theme === 'system' ? 'monitor' : theme === 'dark' ? 'moon' : 'sun')}</button>`;
 let data, page = ['overview', 'games', 'slots', 'responses', 'schedule', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'games';
-const playerMode = location.pathname === '/play';
-let playerToken, savedResponse = null, assignments = [], submitted = false, picks = [], availability = [], playerName = '', playerGm = '', search = '';
-async function api(path, body, options = {}) {
-  const response = await fetch(path, { ...options, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...options.headers }, ...(body !== undefined ? { method: 'POST', body: JSON.stringify(body) } : {}) });
-  const result = await response.json();
-  if (!response.ok) {
-    if (response.status === 401 && !playerMode && path !== '/api/login') { renderLogin(); }
-    const error = new Error(result.error || 'Something went wrong. Please try again.');
-    error.status = response.status;
-    throw error;
-  }
-  return result;
-}
+const embedded = JSON.parse($('#tabletop-data').textContent || 'null');
+const runtime = new PortablePlanner(embedded?.state, embedded?.kind === 'questionnaire');
+const playerMode = runtime.playerMode;
+let savedResponse = null, assignments = [], submitted = false, responseSaved = false, picks = [], availability = [], playerName = '', playerGm = '', search = '';
+const request = (path, input) => runtime.request(path, input);
+let playerDraftDirty = false;
 let toastTimer;
 function toast(message, error = false) {
   const element = $('#toast'); element.textContent = message; element.className = `visible${error ? ' error' : ''}`;
@@ -81,24 +75,24 @@ const pages = {
   games: ['A world of possibilities', 'Build your game roster. We’ll help everyone find their next adventure.'],
   slots: ['Make room for adventure', 'Set the dates and play windows. Each time slot can host multiple tables.'],
   responses: ['Meet your adventurers', 'See what your players want to play and when they can join.'],
-  schedule: ['Bring the party together', 'Turn preferences into a schedule, then share it with your players.'],
+  schedule: ['Bring the party together', 'Turn imported preferences into a schedule, then export it for your players.'],
   settings: ['Make it your gathering', 'The essentials, the play format, and the rules that hold it all together.'],
 };
 function renderOrganizer() {
   document.title = `${data.event.name} · Tabletop`;
   const nav = [['overview', 'grid', 'Overview'], ['games', 'dice', 'Game roster'], ['slots', 'calendar', 'Time slots'], ['responses', 'people', 'Player responses'], ['schedule', 'sliders', 'Schedule']];
   $('#app').innerHTML = `<div class="workspace">
-    <aside class="sidebar"><a class="brand" href="/organizer">${brand()}</a><div class="workspace-label">ORGANIZER WORKSPACE</div>
+    <aside class="sidebar"><a class="brand" href="#games">${brand()}</a><div class="workspace-label">ORGANIZER WORKSPACE</div>
       <div class="event-switch"><span class="event-symbol">${icon('dice')}</span><div><strong>${esc(data.event.name)}</strong><span>${esc(data.event.location || 'Your gathering')}</span></div></div>
       <nav aria-label="Organizer">${nav.map(([id, symbol, label]) => `<a class="nav-item ${page === id ? 'active' : ''}" href="#${id}" ${page === id ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${label}</span>${id === 'responses' ? `<span class="nav-count">${data.responses.length}</span>` : ''}${page === id ? '<span class="active-dot"></span>' : ''}</a>`).join('')}</nav>
       <div class="sidebar-note"><span class="tiny-spark">✧</span><strong>Great stories start<br>around a table.</strong><p>You bring the people.<br>We’ll help with the plan.</p></div>
-      <div class="sidebar-bottom"><a class="nav-item ${page === 'settings' ? 'active' : ''}" href="#settings">${icon('sliders')}<span>Event settings</span></a><button class="icon-button mobile-signout" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button><div class="organizer-profile"><span class="avatar">OT</span><div><strong>Organizer team</strong><span>Planning together</span></div><button class="icon-button" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></div>
+      <div class="sidebar-bottom"><a class="nav-item ${page === 'settings' ? 'active' : ''}" href="#settings">${icon('sliders')}<span>Event settings</span></a><div class="organizer-profile"><span class="avatar">OT</span><div><strong>Organizer team</strong><span>Portable · no installation</span></div><button class="icon-button" data-action="save-event" title="Save event file" aria-label="Save event file">${icon('download')}</button></div></div>
     </aside>
-    <div class="workspace-body"><header class="topbar"><div class="breadcrumb">Your events<span>/</span><strong>${esc(data.event.name)}</strong></div><div class="topbar-actions">${tag(data.event.sample ? 'Sample event' : data.published ? 'Schedule published' : 'Planning in progress', data.published ? 'green' : '')}${themeButton()}<a class="button small" href="/play" target="_blank" rel="noopener">${icon('external')}<span>Player preview</span></a></div></header>
-    <main id="main" class="main-content" tabindex="-1"><div class="page-heading"><div><div class="eyebrow">LET’S MAKE A LITTLE MAGIC</div><h1>${pages[page][0]}</h1><p>${pages[page][1]}</p></div>${btn('Share player link', 'share', 'button primary', 'link')}</div>
-    <div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span><span>${icon('pin')}${esc(data.event.location || 'Location to be decided')}</span><span class="status"><i class="status-dot ${data.event.acceptingResponses ? '' : 'closed'}"></i>${data.event.acceptingResponses ? 'Collecting preferences' : data.published ? 'Schedule is live' : 'Preferences closed'}</span></div>
+    <div class="workspace-body"><header class="topbar"><div class="breadcrumb">Your events<span>/</span><strong>${esc(data.event.name)}</strong></div><div class="topbar-actions">${tag(data.event.sample ? 'Sample event' : data.published ? 'Schedule included' : 'Planning in progress', data.published ? 'green' : '')}${themeButton()}${btn('Player preview', 'preview-player', 'button small', 'external')}</div></header>
+    <main id="main" class="main-content" tabindex="-1">${storageBanner()}<div class="page-heading"><div><div class="eyebrow">LET’S MAKE A LITTLE MAGIC</div><h1>${pages[page][0]}</h1><p>${pages[page][1]}</p></div>${btn('Share questionnaire', 'share', 'button primary', 'link')}</div>
+    <div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span><span>${icon('pin')}${esc(data.event.location || 'Location to be decided')}</span><span class="status"><i class="status-dot ${data.event.acceptingResponses ? '' : 'closed'}"></i>${data.event.acceptingResponses ? 'Collecting preferences' : data.published ? 'Schedule ready to share' : 'Preferences closed'}</span></div>
     ${page !== 'settings' ? stats() : ''}<div id="page-content">${renderPage()}</div>
-    <footer class="main-footer"><span>Made for the people around your table.</span><span>Tabletop · Event planner <span class="version">v0.1</span></span></footer></main></div></div>`;
+    <footer class="main-footer"><span>Made for the people around your table.</span><span>Tabletop · Event planner <span class="version">v0.2</span></span></footer></main></div></div>`;
 }
 function renderPage() {
   if (page === 'games') return gamesPage();
@@ -113,7 +107,7 @@ function gamesPage() {
     <div class="list-toolbar"><label class="search">${icon('search')}<input id="game-search" placeholder="Find a game, system, or GM…" value="${esc(search)}" aria-label="Search the game roster"></label><span class="quiet">${plural(data.games.length, 'offering')} · ${plural(new Set(data.games.map((g) => g.gm.toLocaleLowerCase())).size, 'GM')}</span></div>
     <div class="roster-labels"><span>GAME & ADVENTURE</span><span>GAME MASTER</span><span>PLAYERS</span><span>SESSIONS</span><span></span></div><div id="game-list">${gameRows()}</div>
     <div class="panel-note">${icon('sliders')}<span>${data.event.ensureEveryGm ? 'Scheduling will prioritize at least one session for every game master.' : 'Scheduling will prioritize player preferences.'} <a href="#settings">Adjust scheduling rules ${icon('arrow')}</a></span></div></section>
-    <div class="tip-card"><span class="tip-symbol">✧</span><div><strong>A little detail goes a long way.</strong><p>A short description helps players choose. Add longer adventure notes for anyone who wants to explore.</p></div><a href="/play" target="_blank" rel="noopener">See the player view ${icon('external')}</a></div>`;
+    <div class="tip-card"><span class="tip-symbol">✧</span><div><strong>A little detail goes a long way.</strong><p>A short description helps players choose. Add longer adventure notes for anyone who wants to explore.</p></div>${btn('See the player view', 'preview-player', 'button text-button small', 'external')}</div>`;
 }
 function gameRows() {
   const games = data.games.filter((g) => `${g.title} ${g.adventure} ${g.gm} ${g.system}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
@@ -128,8 +122,8 @@ function overviewPage() {
     ['settings', 'Set the scene', 'Name your event, choose a format, and set your table count.', !data.event.sample],
     ['games', 'Build your game roster', 'Add adventures, game masters, and player limits.', !!data.games.length],
     ['slots', 'Save a little time', 'Create play windows for your event.', !!data.slots.length],
-    ['responses', 'Invite your players', 'Share the questionnaire and gather ranked preferences.', !!data.responses.length],
-    ['schedule', 'Find everyone a seat', 'Close preferences, generate a schedule, and publish it.', data.published],
+    ['responses', 'Invite your players', 'Share the HTML questionnaire and import player response files.', !!data.responses.length],
+    ['schedule', 'Find everyone a seat', 'Import responses, generate a schedule, and export the final plan.', data.published],
   ];
   return `<div class="overview-grid"><section class="panel"><div class="section-heading"><div><h2>A gathering, step by step</h2><p>Everything you need for a well-planned adventure.</p></div>${tag(`${steps.filter((s) => s[3]).length} / 5 ready`, 'purple')}</div><div class="checklist">${steps.map(([id, title, desc, done], i) => `<a href="#${id}" class="checklist-item"><span class="step-number ${done ? 'done' : ''}">${done ? icon('check') : `0${i + 1}`}</span><div><h3>${title}</h3><p>${desc}</p></div>${icon('arrow')}</a>`).join('')}</div></section><aside class="stack"><section class="invite-card"><div class="eyebrow">EVERY ADVENTURE NEEDS A PARTY</div><span class="invite-dice">${icon('dice')}</span><h2>A link. A few choices.<br>A table full of stories.</h2><p>Your player questionnaire is ready to explore.</p>${btn('Share the questionnaire', 'share', 'button primary', 'link')}</section>${data.event.sample ? `<section class="panel compact"><h3>Make yourself at home</h3><p>This is a sample roster. Try the planner with sample responses, or start a blank event for your own gathering.</p>${btn('Try sample responses', 'sample-responses', 'button')}${btn('Start a blank event', 'new-event', 'button text-button')}</section>` : ''}</aside></div>`;
 }
@@ -138,13 +132,14 @@ function slotsPage() {
 }
 function responsesPage() {
   const demand = data.games.map((g) => ({ ...g, total: data.responses.filter((r) => r.preferences.includes(g.id)).length, first: data.responses.filter((r) => r.preferences[0] === g.id).length })).sort((a, b) => b.first - a.first || b.total - a.total);
-  return `<div class="section-heading outside"><div><h2>Player preferences <span class="count">${data.responses.length}</span></h2><p>Names and preferences are visible only to the organizer team.</p></div><div class="button-group">${btn('Refresh', 'refresh', 'button')}${btn('Export CSV', 'export-responses', 'button', 'download')}</div></div>
-    ${!data.responses.length ? `<section class="panel">${empty('The party is still gathering', 'Share the player link to start collecting ranked game choices.', btn('Share player link', 'share', 'button primary', 'link'))}${data.event.sample ? `<div class="sample-bar">Just exploring? ${btn('Add 18 sample responses', 'sample-responses', 'button small')}</div>` : ''}</section>` : `<div class="responses-layout"><section class="panel table-scroll"><table><caption class="sr-only">Players, ranked game preferences, and availability</caption><thead><tr><th>PLAYER</th><th>RANKED PREFERENCES</th><th>AVAILABILITY</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${data.responses.map((r) => `<tr><td><strong>${esc(r.name)}</strong><small>${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: data.event.timezone }).format(new Date(r.updatedAt))}</small></td><td><ol class="rank-list">${r.preferences.map((id) => `<li>${esc(data.games.find((g) => g.id === id)?.title || 'Removed game')}</li>`).join('')}</ol></td><td><span title="${esc(r.availability.map((id) => data.slots.find((s) => s.id === id)?.label || '').join(', '))}">${r.availability.length} / ${plural(data.slots.length, 'slot')}</span></td><td><button class="icon-button danger-text" data-action="delete-response" data-id="${r.id}" aria-label="Remove response from ${esc(r.name)}">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></section><aside class="panel compact demand-panel"><h3>What’s catching their eye?</h3><p>First choices · total interested</p>${demand.map((g, i) => `<div class="demand-row"><span class="demand-number">${i + 1}</span><span><strong>${esc(g.title)}</strong><small>${plural(g.first, 'first choice')} · ${g.total} interested</small></span></div>`).join('')}</aside></div>`}`;
+  return `<div class="section-heading outside"><div><h2>Player preferences <span class="count">${data.responses.length}</span></h2><p>Import response JSON files or read the responses folder. No automatic cloud submission is used.</p></div><div class="button-group">${btn('Import responses', 'import-responses', 'button')}${btn('Read response folder', 'refresh', 'button')}${btn('Export CSV', 'export-responses', 'button', 'download')}</div></div>
+    ${data.ignoredResponseIds?.length ? `<div class="notice">${data.ignoredResponseIds.length} removed response IDs are excluded from future imports. ${btn('Allow importing them again', 'restore-response-imports', 'button small')}</div>` : ''}
+    ${!data.responses.length ? `<section class="panel">${empty('The party is still gathering', 'Share the questionnaire file to start collecting ranked game choices.', btn('Share questionnaire', 'share', 'button primary', 'link'))}${data.event.sample ? `<div class="sample-bar">Just exploring? ${btn('Add 18 sample responses', 'sample-responses', 'button small')}</div>` : ''}</section>` : `<div class="responses-layout"><section class="panel table-scroll"><table><caption class="sr-only">Players, ranked game preferences, and availability</caption><thead><tr><th>PLAYER</th><th>RANKED PREFERENCES</th><th>AVAILABILITY</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>${data.responses.map((r) => `<tr><td><strong>${esc(r.name)}</strong><small>${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: data.event.timezone }).format(new Date(r.updatedAt))}</small></td><td><ol class="rank-list">${r.preferences.map((id) => `<li>${esc(data.games.find((g) => g.id === id)?.title || 'Removed game')}</li>`).join('')}</ol></td><td><span title="${esc(r.availability.map((id) => data.slots.find((s) => s.id === id)?.label || '').join(', '))}">${r.availability.length} / ${plural(data.slots.length, 'slot')}</span></td><td><button class="icon-button danger-text" data-action="delete-response" data-id="${r.id}" aria-label="Remove response from ${esc(r.name)}">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></section><aside class="panel compact demand-panel"><h3>What’s catching their eye?</h3><p>First choices · total interested</p>${demand.map((g, i) => `<div class="demand-row"><span class="demand-number">${i + 1}</span><span><strong>${esc(g.title)}</strong><small>${plural(g.first, 'first choice')} · ${g.total} interested</small></span></div>`).join('')}</aside></div>`}`;
 }
 function schedulePage() {
   const schedule = data.schedule;
-  return `<section class="panel schedule-controls"><div><h2>A good seat for everyone</h2><p>${data.event.mode === 'rotation' ? 'Players can join one game per available slot, without repeating an adventure.' : 'Each player joins at most one session across the whole event.'}</p></div><form id="schedule-form"><label class="field"><span>Scheduling method</span><select name="method"><option value="balanced" ${schedule?.method === 'balanced' ? 'selected' : ''}>Balanced · spread opportunities</option><option value="preference" ${schedule?.method === 'preference' ? 'selected' : ''}>Preference first · favor higher choices</option><option value="lottery" ${schedule?.method === 'lottery' ? 'selected' : ''}>Lottery · randomize willing players</option></select></label><button class="button primary" ${data.event.acceptingResponses ? 'disabled' : ''}>${icon('sliders')}${schedule ? 'Regenerate' : 'Generate schedule'}</button></form>${data.event.acceptingResponses ? '<p class="inline-notice">Close preferences in <a href="#settings">Event settings</a> before generating a schedule.</p>' : ''}<p class="method-note">All methods respect player limits, availability, GM conflicts, and table capacity. Results are suggestions; review them before publishing.</p></section>
-    ${schedule ? `<div class="section-heading outside schedule-result-header"><div><h2>${data.published ? 'Published schedule' : 'Your draft schedule'} ${tag(data.published ? 'Live' : 'Organizer only', data.published ? 'green' : 'purple')}</h2><p>${plural(schedule.sessions.length, 'session')} · ${plural(new Set(schedule.sessions.flatMap((s) => s.playerIds)).size, 'player')} seated · ${esc(schedule.method)} method</p></div><div class="button-group">${btn('Export CSV', 'export-schedule', 'button', 'download')}${btn(data.published ? 'Unpublish' : 'Publish schedule', 'publish', 'button primary', 'check')}</div></div>
+  return `<section class="panel schedule-controls"><div><h2>A good seat for everyone</h2><p>${data.event.mode === 'rotation' ? 'Players can join one game per available slot, without repeating an adventure.' : 'Each player joins at most one session across the whole event.'}</p></div><form id="schedule-form"><label class="field"><span>Scheduling method</span><select name="method"><option value="balanced" ${schedule?.method === 'balanced' ? 'selected' : ''}>Balanced · spread opportunities</option><option value="preference" ${schedule?.method === 'preference' ? 'selected' : ''}>Preference first · favor higher choices</option><option value="lottery" ${schedule?.method === 'lottery' ? 'selected' : ''}>Lottery · randomize willing players</option></select></label><button class="button primary" ${data.event.acceptingResponses ? 'disabled' : ''}>${icon('sliders')}${schedule ? 'Regenerate' : 'Generate schedule'}</button></form>${data.event.acceptingResponses ? '<p class="inline-notice">Close preferences in <a href="#settings">Event settings</a> before generating a schedule.</p>' : ''}<p class="method-note">All methods respect player limits, availability, GM conflicts, and table capacity. Results are suggestions; review them before exporting.</p></section>
+    ${schedule ? `<div class="section-heading outside schedule-result-header"><div><h2>${data.published ? 'Schedule for player export' : 'Your draft schedule'} ${tag(data.published ? 'Included in player export' : 'Organizer only', data.published ? 'green' : 'purple')}</h2><p>${plural(schedule.sessions.length, 'session')} · ${plural(new Set(schedule.sessions.flatMap((s) => s.playerIds)).size, 'player')} seated · ${esc(schedule.method)} method</p></div><div class="button-group">${btn('Export CSV', 'export-schedule', 'button', 'download')}${btn(data.published ? 'Exclude from export' : 'Include in player export', 'publish', 'button primary', 'check')}</div></div>
       ${schedule.warnings.length ? `<div class="notice warning"><strong>A few things to review</strong><ul>${schedule.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>${schedule.unseated.length ? `<p>Unseated: ${esc(schedule.unseated.map((id) => data.responses.find((r) => r.id === id)?.name).join(', '))}</p>` : ''}</div>` : '<div class="notice success">All players have a seat, and the requested GM coverage is met.</div>'}${scheduleGrid(schedule, true)}` : `<section class="panel">${empty('A plan is taking shape', 'Collect preferences, close the questionnaire, and choose a scheduling method. Your draft will appear here.')}</section>`}`;
 }
 function scheduleGrid(schedule, admin = false) {
@@ -156,11 +151,8 @@ function scheduleGrid(schedule, admin = false) {
 function settingsPage() {
   const event = data.event;
   return `<form id="settings-form" class="settings-layout"><div class="stack"><section class="panel form-panel"><div class="section-heading"><div><h2>The gathering</h2><p>These details appear on the player questionnaire.</p></div></div><div class="form-content">${field('Event name', 'name', event.name, 'required maxlength="100"')}${field('Location <span class="optional">optional</span>', 'location', event.location, 'maxlength="160"')}<label class="field"><span>A welcome for your players <span class="optional">optional</span></span><textarea name="description" rows="4" maxlength="3000">${esc(event.description)}</textarea></label>${field('Time zone', 'timezone', event.timezone, 'required placeholder="Europe/Berlin" maxlength="80"')}<p class="field-help">Use an IANA time zone. Dates and times are entered in the event’s local time.</p></div></section>
-      <section class="panel form-panel"><div class="section-heading"><div><h2>The way you play</h2><p>Choose how people move between games.</p></div></div><div class="form-content"><label class="field"><span>Play format</span><select name="mode"><option value="rotation" ${event.mode === 'rotation' ? 'selected' : ''}>Rotation · one game per time slot</option><option value="free-choice" ${event.mode === 'free-choice' ? 'selected' : ''}>Single session · one game for the event</option></select></label>${field('Tables running in parallel', 'parallelTables', event.parallelTables, 'required min="1" max="16"', 'number')}<label class="check-option"><input type="checkbox" name="ensureEveryGm" ${event.ensureEveryGm ? 'checked' : ''}><span><strong>Give every game master a session</strong><small>Prioritize at least one session per GM. Any unmet coverage is flagged for review.</small></span></label><label class="check-option"><input type="checkbox" name="acceptingResponses" ${event.acceptingResponses ? 'checked' : ''}><span><strong>Accept player preferences</strong><small>Close the questionnaire when you’re ready to generate the schedule.</small></span></label><div class="form-footer"><span>Saving changes clears the current schedule.</span><button class="button primary">${icon('check')}Save settings</button></div></div></section></div>
-      <aside class="stack"><section class="panel compact"><h3>Your event, ready to share</h3><p>Players open the questionnaire in any browser. No account needed.</p>${btn('Copy player link', 'share', 'button', 'link')}</section><section class="panel compact"><h3>Keep a copy</h3><p>Download an event export for review. Back up your server’s data folder to preserve player edit access.</p><a class="button" href="/api/admin/backup" download>${icon('download')}Download JSON</a></section><section class="panel compact"><h3>A fresh start</h3><p>Create a blank event on this server. Download a copy of the current event first if you need it.</p>${btn('Create a blank event', 'new-event', 'button danger-outline')}</section></aside></form>`;
-}
-function renderLogin() {
-  $('#app').innerHTML = `<div class="auth-page"><header class="public-header"><a class="brand" href="/organizer">${brand()}</a>${themeButton()}</header><main id="main" class="auth-main"><div class="auth-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="auth-dice">${icon('dice')}</div><span class="art-spark spark-one">✧</span><span class="art-spark spark-two">✦</span></div><div class="eyebrow">BEHIND EVERY GREAT ADVENTURE</div><h1>A little planning.<br>A lot of possibility.</h1><p>Welcome to your organizer workspace.<br>Let’s bring your next gathering to life.</p><form id="login-form" class="panel login-panel"><h2>Come on in, organizer.</h2>${field('Organizer password', 'password', '', 'required autocomplete="current-password"', 'password')}<p id="login-error" class="form-error" role="alert"></p><button class="button primary">Open the workspace ${icon('arrow')}</button><p class="field-help">Use the password set on your server. For a local first run, find it in <code>data/organizer-key.txt</code>.</p></form><a class="subtle-link" href="/play">Here to play? Visit the questionnaire ${icon('arrow')}</a></main><footer class="public-footer">Good stories start around a table.</footer></div>`;
+      <section class="panel form-panel"><div class="section-heading"><div><h2>The way you play</h2><p>Choose how people move between games.</p></div></div><div class="form-content"><label class="field"><span>Play format</span><select name="mode"><option value="rotation" ${event.mode === 'rotation' ? 'selected' : ''}>Rotation · one game per time slot</option><option value="free-choice" ${event.mode === 'free-choice' ? 'selected' : ''}>Single session · one game for the event</option></select></label>${field('Tables running in parallel', 'parallelTables', event.parallelTables, 'required min="1" max="16"', 'number')}<label class="check-option"><input type="checkbox" name="ensureEveryGm" ${event.ensureEveryGm ? 'checked' : ''}><span><strong>Give every game master a session</strong><small>Prioritize at least one session per GM. Any unmet coverage is flagged for review.</small></span></label><label class="check-option"><input type="checkbox" name="acceptingResponses" ${event.acceptingResponses ? 'checked' : ''}><span><strong>Accept player preferences</strong><small>Close new questionnaire exports before scheduling. Previously shared files stay unchanged.</small></span></label><div class="form-footer"><span>Saving changes clears the current schedule.</span><button class="button primary">${icon('check')}Save settings</button></div></div></section></div>
+      <aside class="stack"><section class="panel compact"><h3>Your event, ready to share</h3><p>Players open the questionnaire in any browser. No account needed.</p>${btn('Export questionnaire', 'share', 'button', 'link')}</section><section class="panel compact"><h3>Keep a copy</h3><p>Save event.json beside this HTML app. Open the event folder to save edits directly; otherwise use Open/Save event file.</p>${btn('Save event file', 'save-event', 'button', 'download')}${btn('Open event file', 'open-event', 'button text-button')}</section><section class="panel compact"><h3>A fresh start</h3><p>Create a blank event in the current workspace. Download a copy of the current event first if you need it.</p>${btn('Create a blank event', 'new-event', 'button danger-outline')}</section></aside></form>`;
 }
 function showModal(html) {
   const modal = $('#modal'); modal.innerHTML = `<div class="modal-shell">${html}</div>`; modal.showModal();
@@ -175,13 +167,9 @@ function slotModal(id) {
   showModal(`${modalHeader(id ? 'Edit a play window' : 'A time for adventure', `Times are local to ${esc(data.event.timezone)}.`)}<form id="slot-form" data-id="${id || ''}"><div class="modal-content">${field('Slot name', 'label', slot.label, 'required maxlength="80" placeholder="Saturday · Morning"')}${field('Date', 'date', slot.date, 'required', 'date')}<div class="form-grid">${field('Starts at', 'start', slot.start, 'required', 'time')}${field('Ends at', 'end', slot.end, 'required', 'time')}</div><p class="field-help">Time slots cannot overlap. Use parallel tables to run several games at once. Split overnight play into separate dates.</p><p class="form-error" id="modal-error" role="alert"></p></div><div class="modal-footer">${id ? `<button type="button" class="button text-button danger-text" data-action="delete-slot" data-id="${id}">${icon('trash')}Delete slot</button>` : '<span></span>'}<div class="button-group">${btn('Cancel', 'close-modal', 'button')}<button class="button primary">Save time slot</button></div></div></form>`);
 }
 async function loadPlayer() {
-  data = await api('/api/event');
-  savedResponse = null; assignments = [];
-  playerToken = storageGet(`tabletop-response-${data.event.id}`);
-  if (playerToken) {
-    try { const result = await api('/api/response', undefined, { headers: { Authorization: `Bearer ${playerToken}` } }); savedResponse = result.response; assignments = result.assignments; }
-    catch (error) { if (error.status !== 404) throw error; playerToken = null; storageRemove(`tabletop-response-${data.event.id}`); }
-  }
+  data = await request('/event');
+  savedResponse = runtime.response; assignments = [];
+  if (savedResponse) assignments = (await request('/response')).assignments;
   playerName = savedResponse?.name || '';
   playerGm = savedResponse?.gm || '';
   picks = (savedResponse?.preferences || []).filter((id) => data.games.some((g) => g.id === id));
@@ -191,14 +179,14 @@ async function loadPlayer() {
 }
 function renderPlayer() {
   document.title = `${data.event.name} · Choose your adventure`;
-  $('#app').innerHTML = `<div class="player-page"><header class="public-header"><a class="brand" href="/play">${brand()}</a><div class="public-header-right"><span class="quiet">A SEAT AT THE TABLE</span>${themeButton()}</div></header><main id="main" class="player-main"><section class="player-hero"><div class="hero-copy"><div class="eyebrow">YOUR NEXT STORY STARTS HERE</div><h1>${esc(data.event.name)}</h1><p>${esc(data.event.description || 'New worlds, good company, and a little adventure. Tell us what you would love to play.')}</p><div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span>${data.event.location ? `<span>${icon('pin')}${esc(data.event.location)}</span>` : ''}</div><div class="hero-tags">${tag(`${plural(data.games.length, 'game')} to discover`, 'purple')}${tag(data.event.mode === 'rotation' ? 'A new adventure each round' : 'One session per player')}${tag(data.event.acceptingResponses ? 'Preferences open' : 'Preferences closed', data.event.acceptingResponses ? 'green' : '')}</div></div><div class="hero-art" aria-hidden="true"><div class="hero-ring"></div><div class="hero-dice">${icon('dice')}</div><span class="hero-star one">✧</span><span class="hero-star two">✦</span><span class="hero-star three">✧</span><span class="hero-caption">GOOD COMPANY. GREAT STORIES.</span></div></section>
+  $('#app').innerHTML = `<div class="player-page"><header class="public-header"><a class="brand" href="#">${brand()}</a><div class="public-header-right"><span class="quiet">A SEAT AT THE TABLE</span>${themeButton()}</div></header><main id="main" class="player-main"><section class="player-hero"><div class="hero-copy"><div class="eyebrow">YOUR NEXT STORY STARTS HERE</div><h1>${esc(data.event.name)}</h1><p>${esc(data.event.description || 'New worlds, good company, and a little adventure. Tell us what you would love to play.')}</p><div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span>${data.event.location ? `<span>${icon('pin')}${esc(data.event.location)}</span>` : ''}</div><div class="hero-tags">${tag(`${plural(data.games.length, 'game')} to discover`, 'purple')}${tag(data.event.mode === 'rotation' ? 'A new adventure each round' : 'One session per player')}${tag(data.event.acceptingResponses ? 'Preferences open' : 'Preferences closed', data.event.acceptingResponses ? 'green' : '')}</div></div><div class="hero-art" aria-hidden="true"><div class="hero-ring"></div><div class="hero-dice">${icon('dice')}</div><span class="hero-star one">✧</span><span class="hero-star two">✦</span><span class="hero-star three">✧</span><span class="hero-caption">GOOD COMPANY. GREAT STORIES.</span></div></section>
     ${data.event.sample ? '<div class="notice sample-notice">You’re exploring a sample event. The organizers can replace these adventures before opening their own gathering.</div>' : ''}
-    ${data.published ? publishedPlayer() : submitted ? confirmationPlayer() : !data.event.acceptingResponses ? `<section class="panel">${empty('The party is being assembled', 'Preferences are closed while the organizers prepare the schedule. Come back to this link for updates.')}</section>` : questionnaire()}
-    </main><footer class="public-footer"><span>Made for the people around your table.</span><a href="/organizer">Organizer workspace ${icon('arrow')}</a></footer></div>`;
+    ${data.published ? publishedPlayer() : submitted ? confirmationPlayer() : !data.event.acceptingResponses ? `<section class="panel">${empty('The party is being assembled', 'Preferences are closed while the organizers prepare the schedule. Ask the organizers for the latest questionnaire or schedule file.')}</section>` : questionnaire()}
+    </main><footer class="public-footer"><span>Made for the people around your table.</span><span>Portable questionnaire · responses are saved as files</span></footer></div>`;
 }
 function questionnaire() {
   if (!data.games.length || !data.slots.length) return `<section class="panel">${empty('A gathering in the making', 'The organizers are still adding games and dates. Check back soon to choose your adventure.')}</section>`;
-  return `<form id="player-form" class="questionnaire"><div class="questionnaire-content"><section class="player-section" id="your-details"><div class="numbered-title"><span>01</span><div><h2>First, who’s joining us?</h2><p>A name the organizers will recognize. No account needed.</p></div></div>${field('Your name', 'name', playerName, 'required maxlength="80" autocomplete="name" placeholder="What should we call you?"')}<label class="field"><span>Also running a game? <span class="optional">optional</span></span><select name="gm"><option value="">I’m joining as a player</option>${[...new Set(data.games.map((g) => g.gm))].map((gm) => `<option value="${esc(gm)}" ${playerGm === gm ? 'selected' : ''}>I’m ${esc(gm)}</option>`).join('')}</select></label><p class="field-help">Select your GM identity so we don’t seat you while you’re running a game.</p></section><section class="player-section" id="your-games"><div class="numbered-title"><span>02</span><div><h2>Choose your adventures</h2><p>Rank the games you’d enjoy. 1 is your first choice. Leave games you don’t want unranked.</p></div></div><div class="player-game-list">${data.games.map((g, i) => `<article class="player-game"><div class="player-game-top"><div class="game-emblem tone-${i % 6}">${icon('dice')}</div><div><div class="game-title-line"><h3>${esc(g.title)}</h3>${g.system ? tag(g.system) : ''}</div>${g.adventure ? `<div class="adventure">${esc(g.adventure)}</div>` : ''}</div></div>${g.summary ? `<p class="game-summary">${esc(g.summary)}</p>` : ''}<div class="player-game-meta"><span>${icon('people')}${esc(g.gm)} · GM</span><span>${g.minPlayers}–${g.maxPlayers} players</span></div>${g.slotIds.length ? `<p class="game-availability">Available: ${esc(g.slotIds.map((id) => data.slots.find((s) => s.id === id)?.label || 'No current slot').join(', '))}</p>` : ''}${g.description ? `<details class="description"><summary>More about this adventure</summary><p>${esc(g.description)}</p></details>` : ''}<div class="rank-control"><label for="rank-${g.id}">Your preference</label><select id="rank-${g.id}" data-rank="${g.id}" aria-label="Preference for ${esc(g.title)}">${rankOptions(g.id)}</select></div></article>`).join('')}</div></section><section class="player-section" id="your-time"><div class="numbered-title"><span>03</span><div><h2>When can you play?</h2><p>Choose every slot you can join. All times are in ${esc(data.event.timezone)}.</p></div></div><fieldset class="player-availability"><legend class="sr-only">Your available time slots</legend>${data.slots.map((s) => `<label class="availability-card"><input type="checkbox" name="availability" value="${s.id}" ${availability.includes(s.id) ? 'checked' : ''}><span><strong>${esc(s.label)}</strong><small>${dateLabel(s.date, true)} · ${s.start}–${s.end}</small></span>${icon('calendar')}</label>`).join('')}</fieldset></section></div><aside class="player-summary"><div class="summary-inner"><div class="eyebrow">YOUR ADVENTURE WISHLIST</div><h2>A little of what you love.</h2><p>We’ll use your choices to find you a good seat. More choices give us more possibilities.</p><div id="picked-list">${pickedList()}</div><div class="summary-note">${icon('sliders')}<span>Preferences guide the plan. A particular game or seat isn’t guaranteed.</span></div><p class="form-error" id="player-error" role="alert"></p><button class="button primary submit-preferences">${savedResponse ? 'Update my preferences' : 'Send my preferences'}${icon('arrow')}</button><p class="privacy-note">Only the organizers see your name and choices. Your edit access is saved on this browser.</p></div></aside></form>`;
+  return `<form id="player-form" class="questionnaire"><div class="questionnaire-content"><section class="player-section" id="your-details"><div class="numbered-title"><span>01</span><div><h2>First, who’s joining us?</h2><p>A name the organizers will recognize. No account needed.</p></div></div>${btn('Open my saved response', 'import-my-response', 'button small open-response')}${field('Your name', 'name', playerName, 'required maxlength="80" autocomplete="name" placeholder="What should we call you?"')}<label class="field"><span>Also running a game? <span class="optional">optional</span></span><select name="gm"><option value="">I’m joining as a player</option>${[...new Set(data.games.map((g) => g.gm))].map((gm) => `<option value="${esc(gm)}" ${playerGm === gm ? 'selected' : ''}>I’m ${esc(gm)}</option>`).join('')}</select></label><p class="field-help">Select your GM identity so we don’t seat you while you’re running a game.</p></section><section class="player-section" id="your-games"><div class="numbered-title"><span>02</span><div><h2>Choose your adventures</h2><p>Rank the games you’d enjoy. 1 is your first choice. Leave games you don’t want unranked.</p></div></div><div class="player-game-list">${data.games.map((g, i) => `<article class="player-game"><div class="player-game-top"><div class="game-emblem tone-${i % 6}">${icon('dice')}</div><div><div class="game-title-line"><h3>${esc(g.title)}</h3>${g.system ? tag(g.system) : ''}</div>${g.adventure ? `<div class="adventure">${esc(g.adventure)}</div>` : ''}</div></div>${g.summary ? `<p class="game-summary">${esc(g.summary)}</p>` : ''}<div class="player-game-meta"><span>${icon('people')}${esc(g.gm)} · GM</span><span>${g.minPlayers}–${g.maxPlayers} players</span></div>${g.slotIds.length ? `<p class="game-availability">Available: ${esc(g.slotIds.map((id) => data.slots.find((s) => s.id === id)?.label || 'No current slot').join(', '))}</p>` : ''}${g.description ? `<details class="description"><summary>More about this adventure</summary><p>${esc(g.description)}</p></details>` : ''}<div class="rank-control"><label for="rank-${g.id}">Your preference</label><select id="rank-${g.id}" data-rank="${g.id}" aria-label="Preference for ${esc(g.title)}">${rankOptions(g.id)}</select></div></article>`).join('')}</div></section><section class="player-section" id="your-time"><div class="numbered-title"><span>03</span><div><h2>When can you play?</h2><p>Choose every slot you can join. All times are in ${esc(data.event.timezone)}.</p></div></div><fieldset class="player-availability"><legend class="sr-only">Your available time slots</legend>${data.slots.map((s) => `<label class="availability-card"><input type="checkbox" name="availability" value="${s.id}" ${availability.includes(s.id) ? 'checked' : ''}><span><strong>${esc(s.label)}</strong><small>${dateLabel(s.date, true)} · ${s.start}–${s.end}</small></span>${icon('calendar')}</label>`).join('')}</fieldset></section></div><aside class="player-summary"><div class="summary-inner"><div class="eyebrow">YOUR ADVENTURE WISHLIST</div><h2>A little of what you love.</h2><p>We’ll use your choices to find you a good seat. More choices give us more possibilities.</p><div id="picked-list">${pickedList()}</div><div class="summary-note">${icon('sliders')}<span>Preferences guide the plan. A particular game or seat isn’t guaranteed.</span></div><p class="form-error" id="player-error" role="alert"></p><button class="button primary submit-preferences">${savedResponse ? 'Save updated response' : 'Save my response file'}${icon('arrow')}</button><p class="privacy-note">Save your response JSON file in the shared responses folder, or send it to the organizers. This page does not upload your choices.</p></div></aside></form>`;
 }
 function rankOptions(id) {
   const rank = picks.indexOf(id) + 1;
@@ -208,17 +196,102 @@ function pickedList() {
   return picks.length ? `<ol class="wishlist">${picks.map((id, i) => `<li><span>${i + 1}</span><div><strong>${esc(data.games.find((g) => g.id === id)?.title || '')}</strong><small>${i === 0 ? 'Your first choice' : `Choice ${i + 1}`}</small></div></li>`).join('')}</ol>` : `<div class="wishlist-empty">${icon('dice')}<p>Your next adventure is out there.<br>Pick a game to start your list.</p></div>`;
 }
 function confirmationPlayer() {
-  return `<section class="panel confirmation"><span class="confirmation-check">${icon('check')}</span><div class="eyebrow">ONE STEP CLOSER TO ADVENTURE</div><h2>You’re on the list, ${esc(playerName)}.</h2><p>Your preferences are saved. The organizers will use them to bring the tables together.</p><div class="confirmation-picks">${pickedList()}</div><p class="quiet">Return to this link in the same browser to see your schedule${data.event.acceptingResponses ? ' or update your preferences' : ''}.</p><div class="button-group">${data.event.acceptingResponses ? btn('Edit my preferences', 'edit-preferences', 'button primary', 'edit') : tag('Preferences are now closed')}${btn('Check for updates', 'refresh-player', 'button')}</div></section>`;
+  return `<section class="panel confirmation"><span class="confirmation-check">${icon('check')}</span><div class="eyebrow">YOUR CHOICES, READY TO SHARE</div><h2>Ready for adventure, ${esc(playerName)}.</h2><p>${responseSaved ? 'Your response file has been prepared. Place it in the shared responses folder or send it to the organizers.' : 'Your choices are ready in this tab. Save the response file to keep and share them.'}</p><div class="notice">The organizers receive your choices only after they import your response file. Nothing is uploaded automatically.</div><div class="confirmation-picks">${pickedList()}</div><p class="quiet">To update later, open this questionnaire and load your original response JSON file.</p><div class="button-group">${btn('Save response file', 'save-response', 'button primary', 'download')}${typeof window.showDirectoryPicker === 'function' ? btn('Save into event folder', 'save-response-folder', 'button') : ''}${data.event.acceptingResponses ? btn('Edit my preferences', 'edit-preferences', 'button', 'edit') : ''}</div></section>`;
 }
 function publishedPlayer() {
-  return `${savedResponse ? `<section class="panel my-schedule"><div class="section-heading"><div><div class="eyebrow">YOUR ADVENTURE AWAITS</div><h2>Here’s your plan, ${esc(savedResponse.name)}.</h2><p>All times are in ${esc(data.event.timezone)}.</p></div>${tag('Schedule published', 'green')}</div>${assignments.length ? `<div class="my-assignments">${assignments.map((s) => {
+  return `${savedResponse ? `<section class="panel my-schedule"><div class="section-heading"><div><div class="eyebrow">YOUR ADVENTURE AWAITS</div><h2>Here’s your plan, ${esc(savedResponse.name)}.</h2><p>All times are in ${esc(data.event.timezone)}.</p></div>${tag('Schedule included', 'green')}</div>${assignments.length ? `<div class="my-assignments">${assignments.map((s) => {
     const game = data.games.find((g) => g.id === s.gameId), slot = data.slots.find((item) => item.id === s.slotId);
     return `<article><span class="eyebrow">${dateLabel(slot.date)} · ${esc(slot.start)}–${esc(slot.end)}</span><h3>${esc(game.title)}</h3><p>Table ${s.table} · GM ${esc(game.gm)}</p></article>`;
-  }).join('')}</div>` : '<div class="notice warning">We couldn’t find a seat for your choices this time. Please contact the organizers about open places.</div>'}</section>` : '<div class="notice">The schedule is live. If you submitted preferences, use the same browser and device to see your personal assignments. The organizers can also look them up for you.</div>'}<div class="section-heading outside"><div><h2>The gathering, at a glance</h2><p>Everyone’s adventures. Player names are only visible to the organizers.</p></div>${btn('Refresh', 'refresh-player', 'button')}</div>${scheduleGrid(data.schedule)}`;
+  }).join('')}</div>` : '<div class="notice warning">We couldn’t find a seat for your choices this time. Please contact the organizers about open places.</div>'}</section>` : '<div class="notice">The schedule is included in this file. Open your saved response JSON to see your own assignments, or ask the organizers for your table.</div>'}<div class="section-heading outside"><div><h2>The gathering, at a glance</h2><p>Everyone’s adventures. This player export includes no player names.</p></div>${btn('Open my response file', 'import-my-response', 'button')}</div>${scheduleGrid(data.schedule)}`;
 }
 async function mutate(path, input, message) {
-  data = await api(`/api/admin/${path}`, input); renderOrganizer(); if (message) toast(message);
+  data = await request(`/organizer/${path}`, input); renderOrganizer(); if (message) toast(message);
 }
+function storageBanner() {
+  const folder = runtime.folder;
+  return `<div class="storage-banner"><div>${icon('download')}<span><strong>${folder ? `Event folder · ${esc(folder.name)}` : 'Your event travels with the app'}</strong><small>${folder ? 'Edits save to event.json in this folder. Read responses when cloud sync is complete.' : runtime.dirty ? 'Unsaved changes in this tab. Open a folder or save event.json before closing.' : 'Open the folder containing this HTML app, or open an event.json file.'}</small></span></div><div class="button-group">${btn(typeof window.showDirectoryPicker === 'function' ? 'Open event folder' : 'Open event file', 'open-folder', 'button small')}${btn('Save event file', 'save-event', 'button small', 'download')}</div></div>`;
+}
+function portableDocument(payload) {
+  const root = document.documentElement.cloneNode(true);
+  root.querySelector('#app').innerHTML = '<main id="main" class="loading"><p>Opening your event…</p></main>';
+  root.querySelector('#modal').innerHTML = ''; root.querySelector('#modal').removeAttribute('open');
+  root.querySelector('#toast').textContent = ''; root.querySelector('#toast').className = '';
+  root.querySelector('#tabletop-data').textContent = JSON.stringify(payload).replace(/</g, '\\u003c');
+  root.querySelector('title').textContent = `${payload.state.event.name} · Tabletop`;
+  return `<!doctype html>\n${root.outerHTML}`;
+}
+function downloadText(name, content, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+async function saveText(name, content, type, folder = null) {
+  if (folder) {
+    await writeHandle(await folder.getFileHandle(name, { create: true }), content);
+    return true;
+  }
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: type === 'text/html' ? 'HTML app' : 'JSON data', accept: { [type]: [type === 'text/html' ? '.html' : '.json'] } }] });
+      await writeHandle(handle, content); return true;
+    } catch (error) { if (error.name === 'AbortError') return false; throw error; }
+  }
+  downloadText(name, content, type); return true;
+}
+async function saveEvent() {
+  const saved = runtime.folder ? (await runtime.saveFolder(), true) : await saveText('event.json', JSON.stringify(runtime.snapshot(), null, 2), 'application/json');
+  if (saved) { runtime.dirty = false; renderOrganizer(); toast(runtime.folder ? 'event.json saved beside the app.' : 'Event file prepared. Keep event.json beside the HTML app.'); }
+}
+async function saveResponse() {
+  if (!runtime.response) throw new Error('Fill out your preferences first.');
+  const saved = await saveText(`response-${runtime.response.id}.json`, JSON.stringify(responseEnvelope(runtime.response, data.event.id), null, 2), 'application/json');
+  if (saved) { playerDraftDirty = false; toast('Response file prepared. Place it in responses or send it to the organizers.'); }
+  return saved;
+}
+function previewPlayer() {
+  const url = URL.createObjectURL(new Blob([portableDocument({ kind: 'questionnaire', state: publicSnapshot(runtime.state) })], { type: 'text/html' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.target = '_blank'; anchor.rel = 'noopener'; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+function shareModal() {
+  const hosted = ['https:', 'http:'].includes(location.protocol);
+  const url = hosted ? new URL('questionnaire.html', location.href).href : '';
+  showModal(`${modalHeader('An adventure you can take anywhere', 'Export a self-contained player questionnaire. No installation or account needed.')}<div class="modal-content"><div class="notice">Save <strong>questionnaire.html</strong> beside the app and share that file or its cloud link. Players save their own response JSON files into <strong>responses</strong>, or send them to your team.</div><p>This player export contains the game roster, dates, and any released schedule. Organizer responses and player names are excluded.</p><p>After changing the roster or schedule, export a new questionnaire. Older copies do not update automatically.</p>${hosted ? `<label class="field"><span>Link after you upload questionnaire.html here</span><input id="share-link" value="${esc(url)}" readonly></label>` : '<p class="field-help">A cloud drive may download an HTML file instead of running it in its preview. Players can open the downloaded file in their browser.</p>'}</div><div class="modal-footer">${btn('Preview', 'preview-player', 'button', 'external')}<div class="button-group">${hosted ? btn('Copy proposed link', 'copy-link', 'button') : ''}${btn('Save questionnaire HTML', 'export-player', 'button primary', 'download')}</div></div>`);
+}
+async function applyResponseFiles(files) {
+  const result = await request('/organizer/import-responses', files); data = result.state;
+  renderOrganizer(); toast(`${result.summary.added} new · ${result.summary.updated} updated · ${result.summary.unchanged} unchanged responses.`);
+}
+async function refreshFolder() {
+  if (!runtime.folder) { $('#response-files-input').click(); return; }
+  data = await runtime.reloadFolder();
+  const { files, rejected } = await runtime.readResponseFolder();
+  const matching = files.filter((file) => file.eventId === data.event.id);
+  try {
+    await applyResponseFiles(matching);
+    if (rejected.length || matching.length !== files.length) toast(`Read response folder. ${rejected.length} unreadable and ${files.length - matching.length} other-event files skipped.`, true);
+  } finally { renderOrganizer(); }
+}
+async function inputJson(file) {
+  if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name} is too large (maximum 8 MB).`);
+  return parseJsonFile(await file.text());
+}
+$('#event-file-input').addEventListener('change', async (event) => {
+  const file = event.target.files[0]; if (!file) return;
+  try {
+    if ((runtime.dirty || runtime.folder) && !confirm('Replace the current workspace with this event file? An open event folder will also be updated.')) return;
+    data = await request('/organizer/import-event', await inputJson(file)); renderOrganizer(); toast('Event file opened.');
+  } catch (error) { toast(error.message, true); } finally { event.target.value = ''; }
+});
+$('#response-files-input').addEventListener('change', async (event) => {
+  try { const files = [...event.target.files]; if (files.length) await applyResponseFiles(await Promise.all(files.map(inputJson))); }
+  catch (error) { toast(error.message, true); } finally { event.target.value = ''; }
+});
+$('#my-response-input').addEventListener('change', async (event) => {
+  const file = event.target.files[0]; if (!file) return;
+  try { runtime.openPlayerResponse(await inputJson(file)); responseSaved = true; playerDraftDirty = false; await loadPlayer(); }
+  catch (error) { toast(error.message, true); } finally { event.target.value = ''; }
+});
 function downloadCsv(filename, rows) {
   // Neutralize spreadsheet formulas when exported values begin with control/formula characters.
   const cell = (value) => { let text = String(value ?? ''); if (/^[\s]*[=+\-@]|^[\t\r\n]/.test(text)) text = `'${text}`; return `"${text.replace(/"/g, '""')}"`; };
@@ -233,36 +306,58 @@ document.addEventListener('click', async (event) => {
     if (action === 'close-modal') { $('#modal').close(); return; }
     if (action === 'add-game' || action === 'edit-game') { gameModal(id); return; }
     if (action === 'add-slot' || action === 'edit-slot') { slotModal(id); return; }
-    if (action === 'share') {
-      const link = `${location.origin}/play`;
-      showModal(`${modalHeader('A seat at the table, one link away', 'Share this questionnaire with your players.')}<div class="modal-content"><label class="field"><span>Player questionnaire link</span><input id="share-link" value="${esc(link)}" readonly></label><p class="field-help">Use your server’s public HTTPS address when inviting other people. A localhost link works only on this computer.</p><p class="field-help">${data.event.acceptingResponses ? 'The questionnaire is open for preferences.' : 'Preferences are currently closed. Reopen them in Event settings if needed.'}</p></div><div class="modal-footer"><span></span><div class="button-group"><a class="button" href="/play" target="_blank" rel="noopener">Preview ${icon('external')}</a>${btn('Copy link', 'copy-link', 'button primary', 'link')}</div></div>`); return;
+    if (action === 'share') { shareModal(); return; }
+    if (action === 'preview-player') { previewPlayer(); return; }
+    if (action === 'export-player') {
+      const exported = await saveText('questionnaire.html', portableDocument({ kind: 'questionnaire', state: publicSnapshot(runtime.state) }), 'text/html', runtime.folder);
+      if (exported) toast('Questionnaire file saved. Share that file or its cloud link.');
+      return;
     }
-    if (action === 'copy-link') { try { await navigator.clipboard.writeText($('#share-link').value); toast('Player link copied.'); } catch { $('#share-link').focus(); $('#share-link').select(); toast('Select and copy the highlighted link.'); } return; }
-    if (action === 'logout') { await api('/api/logout', {}); renderLogin(); return; }
-    if (action === 'refresh') { data = await api('/api/admin'); renderOrganizer(); toast('You’re up to date.'); return; }
-    if (action === 'refresh-player') { await loadPlayer(); toast('You’re up to date.'); return; }
+    if (action === 'copy-link') { try { await navigator.clipboard.writeText($('#share-link').value); toast('Link copied. Upload questionnaire.html there first.'); } catch { $('#share-link').focus(); $('#share-link').select(); toast('Select and copy the highlighted link.'); } return; }
+    if (action === 'open-folder') {
+      if (typeof window.showDirectoryPicker !== 'function') { $('#event-file-input').click(); return; }
+      if (runtime.dirty && !confirm('Open a folder and replace the unsaved workspace? Save your current event file first if needed.')) return;
+      const folder = await window.showDirectoryPicker({ mode: 'readwrite', id: 'tabletop-event-folder' });
+      data = await runtime.openFolder(folder); renderOrganizer(); toast(`Opened ${folder.name}. Changes save to event.json.`); return;
+    }
+    if (action === 'open-event') { $('#event-file-input').click(); return; }
+    if (action === 'save-event') { await saveEvent(); return; }
+    if (action === 'save-response') { responseSaved = await saveResponse(); renderPlayer(); return; }
+    if (action === 'save-response-folder') {
+      const folder = await window.showDirectoryPicker({ mode: 'readwrite', id: 'tabletop-response-folder' });
+      const responses = await folder.getDirectoryHandle('responses', { create: true });
+      responseSaved = await saveText(`response-${runtime.response.id}.json`, JSON.stringify(responseEnvelope(runtime.response, data.event.id), null, 2), 'application/json', responses);
+      playerDraftDirty = false; renderPlayer(); toast('Response saved in the event folder’s responses subfolder.'); return;
+    }
+    if (action === 'restore-response-imports') { await mutate('restore-response-imports', {}, 'Excluded responses can be imported again.'); return; }
+    if (action === 'import-responses') { $('#response-files-input').click(); return; }
+    if (action === 'import-my-response') { $('#my-response-input').click(); return; }
+    if (action === 'refresh') { await refreshFolder(); return; }
+    if (action === 'refresh-player') { await loadPlayer(); return; }
     if (action === 'edit-preferences') { submitted = false; renderPlayer(); $('#player-form input[name="name"]').focus(); return; }
     if (action.startsWith('delete-')) {
       const type = action.slice(7);
       if (!confirm(`Remove this ${type}? Any generated schedule will be cleared.`)) return;
       await mutate('delete', { type, id }, `${type[0].toUpperCase() + type.slice(1)} removed.`); $('#modal').close(); return;
     }
-    if (action === 'new-event') { showModal(`${modalHeader('Start a new gathering', 'This replaces the event, games, responses, and schedule on this server.')}<form id="new-event-form"><div class="modal-content"><p>Download your JSON export first if you want to keep a reference copy.</p>${field('Type NEW EVENT to continue', 'confirm', '', 'required pattern="NEW EVENT" autocomplete="off"')}<p class="form-error" id="modal-error" role="alert"></p></div><div class="modal-footer"><a class="button" href="/api/admin/backup" download>Download current event</a><button class="button primary">Create blank event</button></div></form>`); return; }
+    if (action === 'new-event') { showModal(`${modalHeader('Start a new gathering', 'This replaces the event, games, responses, and schedule in this workspace.')}<form id="new-event-form"><div class="modal-content"><p>Download your JSON export first if you want to keep a reference copy.</p>${field('Type NEW EVENT to continue', 'confirm', '', 'required pattern="NEW EVENT" autocomplete="off"')}<p class="form-error" id="modal-error" role="alert"></p></div><div class="modal-footer">${btn('Save current event', 'save-event', 'button')}<button class="button primary">Create blank event</button></div></form>`); return; }
     if (action === 'sample-responses') { button.disabled = true; await mutate('sample-responses', {}, '18 sample responses added.'); return; }
-    if (action === 'publish') { button.disabled = true; await mutate('publish', {}, data.published ? 'Schedule unpublished.' : 'Schedule published. Players can see their assignments on the same link.'); return; }
+    if (action === 'publish') { button.disabled = true; await mutate('publish', {}, data.published ? 'Schedule excluded from future exports. Previously shared files stay unchanged.' : 'Schedule included. Export a fresh questionnaire HTML to share it.'); return; }
     if (action === 'export-responses') {
       downloadCsv('tabletop-preferences.csv', [['Player', 'Ranked preferences', 'Availability'], ...data.responses.map((r) => [r.name, r.preferences.map((id, i) => `${i + 1}. ${data.games.find((g) => g.id === id)?.title || ''}`).join(' | '), r.availability.map((id) => data.slots.find((s) => s.id === id)?.label || '').join(' | ')])]); return;
     }
     if (action === 'export-schedule') {
       downloadCsv('tabletop-schedule.csv', [['Date', 'Time zone', 'Slot', 'Start', 'End', 'Table', 'Game', 'Adventure', 'GM', 'Players'], ...data.schedule.sessions.map((s) => { const g = data.games.find((g) => g.id === s.gameId), slot = data.slots.find((slot) => slot.id === s.slotId); return [slot.date, data.event.timezone, slot.label, slot.start, slot.end, s.table, g.title, g.adventure, g.gm, s.playerIds.map((id) => data.responses.find((r) => r.id === id)?.name || '').join(' | ')]; })]); return;
     }
-  } catch (error) { toast(error.message, true); button.disabled = false; }
+  } catch (error) { if (error.name !== 'AbortError') toast(error.message, true); button.disabled = false; }
 });
 document.addEventListener('input', (event) => {
+  if (event.target.closest('#player-form')) playerDraftDirty = true;
   if (event.target.id === 'game-search') { search = event.target.value; $('#game-list').innerHTML = gameRows(); }
   if (event.target.name === 'name' && event.target.closest('#player-form')) playerName = event.target.value;
 });
 document.addEventListener('change', (event) => {
+  if (event.target.closest('#player-form')) playerDraftDirty = true;
   if (event.target.name === 'gm' && event.target.closest('#player-form')) playerGm = event.target.value;
   if (event.target.dataset.rank) {
     const id = event.target.dataset.rank, rank = Number(event.target.value);
@@ -278,10 +373,9 @@ document.addEventListener('submit', async (event) => {
   const fields = new FormData(form), values = Object.fromEntries(fields);
   const submit = form.querySelector('button:not([type="button"]):last-of-type');
   if (submit) submit.disabled = true;
-  const errorElement = $('#modal-error', form) || $('#player-error', form) || $('#login-error', form);
+  const errorElement = $('#modal-error', form) || $('#player-error', form);
   if (errorElement) errorElement.textContent = '';
   try {
-    if (form.id === 'login-form') { await api('/api/login', { password: values.password }); data = await api('/api/admin'); renderOrganizer(); window.scrollTo(0, 0); }
     if (form.id === 'game-form') {
       const selected = fields.getAll('slotIds');
       if (data.slots.length && !selected.length) throw new Error('Choose at least one time slot for this game.');
@@ -294,11 +388,11 @@ document.addEventListener('submit', async (event) => {
     if (form.id === 'player-form') {
       if (!picks.length) throw new Error('Choose at least one game you’d enjoy.');
       if (!availability.length) throw new Error('Choose at least one time slot you can join.');
-      const result = await api('/api/responses', { name: values.name, gm: values.gm, preferences: picks, availability, ...(playerToken ? { token: playerToken } : {}) });
-      playerToken = result.token;
-      const remembered = storageSet(`tabletop-response-${data.event.id}`, playerToken);
-      savedResponse = { name: values.name, gm: values.gm, preferences: picks, availability }; playerName = values.name; submitted = true; renderPlayer();
-      toast(remembered ? 'Your preferences are saved. See you at the table!' : 'Saved. Browser storage is unavailable, so ask the organizers for future changes.'); window.scrollTo({ top: 0, behavior: 'smooth' });
+      const result = await request('/responses', { name: values.name, gm: values.gm, preferences: picks, availability });
+      savedResponse = result.response; playerName = values.name; submitted = true;
+      responseSaved = await saveResponse(); renderPlayer();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+
     }
   } catch (error) { if (errorElement) { errorElement.textContent = error.message; errorElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } else toast(error.message, true); }
   finally { if (submit) submit.disabled = false; }
@@ -308,9 +402,13 @@ window.addEventListener('hashchange', () => {
   page = next; renderOrganizer(); $('#main').focus({ preventScroll: true }); window.scrollTo(0, 0);
 });
 $('#modal').addEventListener('click', (event) => { if (event.target === $('#modal')) $('#modal').close(); });
+window.addEventListener('beforeunload', (event) => {
+  if (!runtime.dirty && !playerDraftDirty) return;
+  event.preventDefault(); event.returnValue = '';
+});
 try {
   if (playerMode) await loadPlayer();
-  else { const auth = await api('/api/auth'); if (auth.authenticated) { data = await api('/api/admin'); renderOrganizer(); } else renderLogin(); }
+  else { data = await request('/organizer'); renderOrganizer(); }
 } catch (error) {
-  $('#app').innerHTML = `<main id="main" class="loading"><h1>We couldn’t reach the table.</h1><p>${esc(error.message)}</p><a class="button" href="${playerMode ? '/play' : '/organizer'}">Try again</a></main>`;
+  $('#app').innerHTML = `<main id="main" class="loading"><h1>We couldn’t open this event.</h1><p>${esc(error.message)}</p></main>`;
 }

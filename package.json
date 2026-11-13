@@ -1,14 +1,13 @@
 {
   "name": "ttrpg-event-scheduler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "A self-hosted tabletop event planner and player preference questionnaire.",
+  "description": "A portable, single-file HTML tabletop event planner. Node is used only for contributor checks and rebuilding.",
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "build": "node scripts/build.mjs",
     "test": "node --test",
-    "check": "node --check server.js && node --check lib/model.js && node --check lib/scheduler.js && node --check public/app.js"
+    "check": "node --check lib/model.js && node --check lib/scheduler.js && node --check lib/portable.js && node --check public/app.js && node --check scripts/build.mjs"
   }
 }

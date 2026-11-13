@@ -11,10 +11,39 @@ const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const script = html.match(/<script id="tabletop-code">([\s\S]*?)<\/script>/)[1];
 test('checked-in HTML is current, self-contained, and compiles without module imports', async () => {
   assert.equal(html, await buildHtml());
+  assert.equal(await readFile(new URL('../organizer.html', import.meta.url), 'utf8'), html);
+  assert.equal(await readFile(new URL('../players.html', import.meta.url), 'utf8'), await buildHtml('players'));
   assert.doesNotThrow(() => new vm.Script(script));
   assert.doesNotMatch(html, /<script[^>]+src=|<link[^>]+(?:href="https?:|rel="stylesheet")/i);
   assert.doesNotMatch(script, /\bfetch\s*\(|\bimport\s*(?:\(|\{)|node:/);
   assert.match(html, /connect-src 'none'/);
+});
+test('top-level player entry opens an exported questionnaire without source-folder dependencies', async () => {
+  const state = sampleState(), elements = new Map(), handlers = new Map();
+  const element = (key) => {
+    if (!elements.has(key)) elements.set(key, {
+      innerHTML: '', textContent: key === '#tabletop-data' ? '{"kind":"player-entry"}' : '',
+      addEventListener: (type, handler) => handlers.set(`${key}:${type}`, handler),
+    });
+    return elements.get(key);
+  };
+  const context = vm.createContext({
+    document: { querySelector: element, addEventListener() {}, documentElement: { dataset: {} } },
+    window: { addEventListener() {} }, location: { hash: '', protocol: 'file:', href: 'file:///event/players.html' },
+    localStorage: { getItem: () => null }, matchMedia: () => ({ matches: false, addEventListener() {} }),
+    structuredClone, TextEncoder, crypto: webcrypto, console,
+    fetch: () => { throw new Error('Network is forbidden'); },
+  });
+  await new vm.Script(script).runInContext(context);
+  assert.match(element('#app').innerHTML, /Open questionnaire file/);
+  assert.match(element('#app').innerHTML, /href="organizer.html"/);
+  assert.match(element('#app').innerHTML, /href="README.md"/);
+  assert.doesNotMatch(element('#app').innerHTML, /The game roster/);
+  const exported = html.replace('<script type="application/json" id="tabletop-data">null</script>', `<script type="application/json" id="tabletop-data">${JSON.stringify({ kind: 'questionnaire', state: publicSnapshot(state) })}</script>`);
+  await handlers.get('#questionnaire-file-input:change')({ target: { files: [{ size: exported.length, text: async () => exported }], value: '' } });
+  assert.match(element('#app').innerHTML, /Save my response file/);
+  assert.match(element('#app').innerHTML, /The Wild Beyond/);
+  assert.doesNotMatch(element('#app').innerHTML, /ORGANIZER WORKSPACE/);
 });
 test('standalone organizer boots without network access, login, or browser event storage', async () => {
   const elements = new Map();

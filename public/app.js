@@ -1,4 +1,5 @@
-import { PortablePlanner, publicSnapshot, responseEnvelope, parseJsonFile, MAX_FILE_BYTES, writeHandle } from '../lib/portable.js';
+import { PortablePlanner, publicSnapshot, responseEnvelope, parseJsonFile, openQuestionnaireFile, MAX_FILE_BYTES, writeHandle } from '../lib/portable.js';
+import { blankState } from '../lib/model.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = (value = '') => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -38,7 +39,9 @@ applyTheme(); media.addEventListener('change', applyTheme);
 const themeButton = () => `<button class="icon-button" data-action="theme" title="Theme: ${theme}. Click to change." aria-label="Theme: ${theme}. Click to change.">${icon(theme === 'system' ? 'monitor' : theme === 'dark' ? 'moon' : 'sun')}</button>`;
 let data, page = ['overview', 'games', 'slots', 'responses', 'schedule', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'games';
 const embedded = JSON.parse($('#tabletop-data').textContent || 'null');
-const runtime = new PortablePlanner(embedded?.state, embedded?.kind === 'questionnaire');
+const playerEntry = embedded?.kind === 'player-entry';
+let playerLoaded = !playerEntry;
+let runtime = new PortablePlanner(playerEntry ? publicSnapshot(blankState()) : embedded?.state, playerEntry || embedded?.kind === 'questionnaire');
 const playerMode = runtime.playerMode;
 let savedResponse = null, assignments = [], submitted = false, responseSaved = false, picks = [], availability = [], playerName = '', playerGm = '', search = '';
 const request = (path, input) => runtime.request(path, input);
@@ -88,7 +91,7 @@ function renderOrganizer() {
       <div class="sidebar-note"><span class="tiny-spark">✧</span><strong>Great stories start<br>around a table.</strong><p>You bring the people.<br>We’ll help with the plan.</p></div>
       <div class="sidebar-bottom"><a class="nav-item ${page === 'settings' ? 'active' : ''}" href="#settings">${icon('sliders')}<span>Event settings</span></a><div class="organizer-profile"><span class="avatar">OT</span><div><strong>Organizer team</strong><span>Portable · no installation</span></div><button class="icon-button" data-action="save-event" title="Save event file" aria-label="Save event file">${icon('download')}</button></div></div>
     </aside>
-    <div class="workspace-body"><header class="topbar"><div class="breadcrumb">Your events<span>/</span><strong>${esc(data.event.name)}</strong></div><div class="topbar-actions">${tag(data.event.sample ? 'Sample event' : data.published ? 'Schedule included' : 'Planning in progress', data.published ? 'green' : '')}${themeButton()}${btn('Player preview', 'preview-player', 'button small', 'external')}</div></header>
+    <div class="workspace-body"><header class="topbar"><div class="breadcrumb">Your events<span>/</span><strong>${esc(data.event.name)}</strong></div><div class="topbar-actions">${tag(data.event.sample ? 'Sample event' : data.published ? 'Schedule included' : 'Planning in progress', data.published ? 'green' : '')}${themeButton()}<a class="button small" href="players.html">${icon('people')}<span>Players</span></a><a class="button small" href="README.md">Instructions</a></div></header>
     <main id="main" class="main-content" tabindex="-1">${storageBanner()}<div class="page-heading"><div><div class="eyebrow">LET’S MAKE A LITTLE MAGIC</div><h1>${pages[page][0]}</h1><p>${pages[page][1]}</p></div>${btn('Share questionnaire', 'share', 'button primary', 'link')}</div>
     <div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span><span>${icon('pin')}${esc(data.event.location || 'Location to be decided')}</span><span class="status"><i class="status-dot ${data.event.acceptingResponses ? '' : 'closed'}"></i>${data.event.acceptingResponses ? 'Collecting preferences' : data.published ? 'Schedule ready to share' : 'Preferences closed'}</span></div>
     ${page !== 'settings' ? stats() : ''}<div id="page-content">${renderPage()}</div>
@@ -178,11 +181,16 @@ async function loadPlayer() {
   renderPlayer();
 }
 function renderPlayer() {
+  if (!playerLoaded) { renderPlayerEntry(); return; }
   document.title = `${data.event.name} · Choose your adventure`;
   $('#app').innerHTML = `<div class="player-page"><header class="public-header"><a class="brand" href="#">${brand()}</a><div class="public-header-right"><span class="quiet">A SEAT AT THE TABLE</span>${themeButton()}</div></header><main id="main" class="player-main"><section class="player-hero"><div class="hero-copy"><div class="eyebrow">YOUR NEXT STORY STARTS HERE</div><h1>${esc(data.event.name)}</h1><p>${esc(data.event.description || 'New worlds, good company, and a little adventure. Tell us what you would love to play.')}</p><div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span>${data.event.location ? `<span>${icon('pin')}${esc(data.event.location)}</span>` : ''}</div><div class="hero-tags">${tag(`${plural(data.games.length, 'game')} to discover`, 'purple')}${tag(data.event.mode === 'rotation' ? 'A new adventure each round' : 'One session per player')}${tag(data.event.acceptingResponses ? 'Preferences open' : 'Preferences closed', data.event.acceptingResponses ? 'green' : '')}</div></div><div class="hero-art" aria-hidden="true"><div class="hero-ring"></div><div class="hero-dice">${icon('dice')}</div><span class="hero-star one">✧</span><span class="hero-star two">✦</span><span class="hero-star three">✧</span><span class="hero-caption">GOOD COMPANY. GREAT STORIES.</span></div></section>
     ${data.event.sample ? '<div class="notice sample-notice">You’re exploring a sample event. The organizers can replace these adventures before opening their own gathering.</div>' : ''}
     ${data.published ? publishedPlayer() : submitted ? confirmationPlayer() : !data.event.acceptingResponses ? `<section class="panel">${empty('The party is being assembled', 'Preferences are closed while the organizers prepare the schedule. Ask the organizers for the latest questionnaire or schedule file.')}</section>` : questionnaire()}
     </main><footer class="public-footer"><span>Made for the people around your table.</span><span>Portable questionnaire · responses are saved as files</span></footer></div>`;
+}
+function renderPlayerEntry() {
+  document.title = 'Players · Tabletop';
+  $('#app').innerHTML = `<div class="auth-page"><header class="public-header"><a class="brand" href="index.html">${brand()}</a><div class="button-group"><a class="button small" href="organizer.html">Organizer</a>${themeButton()}</div></header><main id="main" class="auth-main"><div class="auth-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="auth-dice">${icon('dice')}</div><span class="art-spark spark-one">✧</span></div><div class="eyebrow">PLAYER QUESTIONNAIRE</div><h1>Your next adventure<br>starts here.</h1><p>Open the questionnaire HTML file your organizers shared. Choose your games, then save your response file.</p><section class="panel login-panel"><h2>Have your questionnaire ready?</h2>${btn('Open questionnaire file', 'open-questionnaire', 'button primary', 'external')}<p class="field-help">Choose the exported <code>questionnaire.html</code>. You can also open that file directly in a browser. Your choices stay on your device until you share the response file.</p></section></main><footer class="public-footer"><a href="organizer.html">Organizer workspace</a><a href="README.md">Instructions</a></footer></div>`;
 }
 function questionnaire() {
   if (!data.games.length || !data.slots.length) return `<section class="panel">${empty('A gathering in the making', 'The organizers are still adding games and dates. Check back soon to choose your adventure.')}</section>`;
@@ -292,6 +300,15 @@ $('#my-response-input').addEventListener('change', async (event) => {
   try { runtime.openPlayerResponse(await inputJson(file)); responseSaved = true; playerDraftDirty = false; await loadPlayer(); }
   catch (error) { toast(error.message, true); } finally { event.target.value = ''; }
 });
+$('#questionnaire-file-input').addEventListener('change', async (event) => {
+  const file = event.target.files[0]; if (!file) return;
+  try {
+    if (file.size > MAX_FILE_BYTES) throw new Error('Questionnaire file is too large (maximum 8 MB).');
+    runtime = new PortablePlanner(openQuestionnaireFile(await file.text()), true);
+    playerLoaded = true; responseSaved = false; playerDraftDirty = false;
+    await loadPlayer();
+  } catch (error) { toast(error.message, true); } finally { event.target.value = ''; }
+});
 function downloadCsv(filename, rows) {
   // Neutralize spreadsheet formulas when exported values begin with control/formula characters.
   const cell = (value) => { let text = String(value ?? ''); if (/^[\s]*[=+\-@]|^[\t\r\n]/.test(text)) text = `'${text}`; return `"${text.replace(/"/g, '""')}"`; };
@@ -321,6 +338,7 @@ document.addEventListener('click', async (event) => {
       data = await runtime.openFolder(folder); renderOrganizer(); toast(`Opened ${folder.name}. Changes save to event.json.`); return;
     }
     if (action === 'open-event') { $('#event-file-input').click(); return; }
+    if (action === 'open-questionnaire') { $('#questionnaire-file-input').click(); return; }
     if (action === 'save-event') { await saveEvent(); return; }
     if (action === 'save-response') { responseSaved = await saveResponse(); renderPlayer(); return; }
     if (action === 'save-response-folder') {

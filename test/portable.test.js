@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sampleState } from '../lib/model.js';
-import { PortablePlanner, publicSnapshot, responseEnvelope, importResponses, restoreEvent, restoreQuestionnaire, parseJsonFile } from '../lib/portable.js';
+import { PortablePlanner, publicSnapshot, responseEnvelope, importResponses, restoreEvent, restoreQuestionnaire, parseJsonFile, openQuestionnaireFile } from '../lib/portable.js';
 
 class MemoryFolder {
   constructor(name = 'Our gathering') { this.name = name; this.files = new Map(); this.directories = new Map(); }
@@ -157,4 +157,16 @@ test('legacy event import strips server credentials and rejects unsafe identifie
   assert.throws(() => restoreEvent({ ...state, games: [{ ...state.games[0], id: '\" onclick=alert(1)' }] }), /identifier/);
   assert.throws(() => restoreQuestionnaire({ ...state, published: true, schedule: { method: 'balanced', generatedAt: new Date().toISOString(), sessions: [{ id: 's', gameId: 'missing', slotId: state.slots[0].id, table: 1, playerIds: [] }] } }), /missing game/);
   assert.throws(() => parseJsonFile('{invalid'), /JSON/);
+});
+test('player entry reads exported questionnaire data without executing HTML and rejects organizer files', () => {
+  const state = sampleState();
+  state.event.description = '</script><script>throw new Error("Do not run imported scripts")</script>';
+  const payload = { kind: 'questionnaire', state: publicSnapshot(state) };
+  const json = JSON.stringify(payload).replace(/</g, '\\u003c');
+  const html = `<!doctype html><script>throw new Error('Do not run')</script><script type="application/json" id="tabletop-data">${json}</script>`;
+  assert.equal(openQuestionnaireFile(html).event.description, state.event.description);
+  assert.equal(openQuestionnaireFile(JSON.stringify(payload)).event.id, state.event.id);
+  assert.throws(() => openQuestionnaireFile(JSON.stringify(state)), /not an exported/);
+  assert.throws(() => openQuestionnaireFile('<script id="tabletop-code">application code</script>'), /exported by your organizers/);
+  assert.throws(() => openQuestionnaireFile(`<script data-id="tabletop-data" type="application/json">${json}</script>`), /exported by your organizers/);
 });

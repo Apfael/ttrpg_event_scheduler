@@ -1,5 +1,9 @@
 # Tabletop · portable TTRPG event planner
 
+**[Open organizer](organizer.html) · [Open player questionnaire](players.html) · [Start here](#open-and-save-an-event)**
+
+All user-facing entry files are at the repository’s top level. `index.html` also opens the organizer. The player entry lets you open the organizer’s exported `questionnaire.html`; that exported file can also be opened directly. On GitHub, download the HTML file to run it; on an HTML host, these links open the tools directly.
+
 **Open `index.html` in your browser. Nothing to install.** No Docker, Node server, package installation, account, or application setup is needed to use this tool. The checked-in HTML file contains all styles, scripts, scheduling logic, and icons. It works offline.
 
 Keep the app and its data together in a local or cloud-synced folder:
@@ -7,6 +11,8 @@ Keep the app and its data together in a local or cloud-synced folder:
 ```text
 Our gathering/
   index.html               Complete organizer app
+  organizer.html           Direct organizer entry (same self-contained app)
+  players.html             Direct player entry; opens an exported questionnaire
   event.json               Roster, dates, responses, and schedule
   questionnaire.html       Exported player questionnaire / released schedule
   responses/
@@ -96,14 +102,16 @@ npm test
 
 ```text
 index.html           Complete portable app; double-click to use
+organizer.html       Top-level organizer entry (identical to index.html)
+players.html         Top-level player entry; opens an exported questionnaire
 public/index.html    Source HTML template
 public/app.js        Interface and file pickers
 public/styles.css    Responsive light/dark styles
 lib/model.js         Browser-compatible event model and validation
 lib/scheduler.js     Scheduling methods
 lib/portable.js      File formats, imports, local actions, folder persistence
-scripts/build.mjs    Generates the checked-in index.html
+scripts/build.mjs    Generates all three top-level HTML entry files
 test/                Scheduler, file workflow, and bundle checks
 ```
 
-After changing source files, rebuild and commit `index.html` too. Checks cover scheduling constraints, import/update behavior, public export privacy, folder writes/conflicts, and the standalone HTML bundle. Direct folder access is an enhancement; ordinary file import/save remains available.
+After changing source files, rebuild and commit all three top-level HTML files too. Checks cover scheduling constraints, import/update behavior, public export privacy, folder writes/conflicts, and the standalone HTML bundles. Direct folder access is an enhancement; ordinary file import/save remains available.

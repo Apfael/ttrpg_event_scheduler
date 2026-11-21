@@ -15,7 +15,7 @@ test('root entry pages match sources, bundle all frontend assets, and use the sa
   assert.doesNotThrow(() => new vm.Script(script));
   assert.doesNotMatch(html, /<script[^>]+src=|<link[^>]+(?:href="https?:|rel="stylesheet")/i);
   assert.doesNotMatch(script, /showDirectoryPicker|showSaveFilePicker|responseEnvelope|openQuestionnaireFile/);
-  assert.doesNotMatch(html, /type="file"/);
+  assert.match(html, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);
   assert.match(html, /connect-src 'self'/);
 });
 function harness(player, state, hash = '') {
@@ -32,7 +32,7 @@ function harness(player, state, hash = '') {
     const action = new URL(url, 'https://example.test/event/').searchParams.get('action');
     let data;
     if (action === 'status') data = { initialized: true, authenticated: !player, csrf: 'test-csrf' };
-    else if (action === 'event') data = { event: state.event, games: state.games, slots: state.slots, definitionRevision: 4, schedule: null, published: false };
+    else if (action === 'event') data = { event: state.event, organization: state.organization, games: state.games, slots: state.slots, definitionRevision: 4, schedule: null, published: false };
     else if (action === 'admin') data = state;
     else if (action === 'respond') {
       assert.equal(options.headers['X-Tabletop-CSRF'], 'test-csrf'); posts.push(JSON.parse(options.body)); data = { ok: true, token: 'a'.repeat(64) };
@@ -49,9 +49,10 @@ function harness(player, state, hash = '') {
   return { context, element, listeners, posts, storage };
 }
 test('player selection is a compact name/GM list; submitting ranks and vetoes saves to the shared endpoint', async () => {
-  const state = sampleState(), h = harness(true, state);
+  const state = { ...sampleState(), organization: { name: 'Lantern Guild', logo: null } }, h = harness(true, state);
   await new vm.Script(script).runInContext(h.context);
   const markup = h.element('#app').innerHTML;
+  assert.match(markup, /Lantern Guild/);
   const visible = markup.replace(/<details\b[\s\S]*?<\/details>/g, '');
   assert.match(visible, /The Wild Beyond/); assert.match(visible, /Alex Morgan/);
   assert.doesNotMatch(visible, /players per table|Follow a wandering|Dungeons &amp; Dragons|game-emblem|game-summary/);
@@ -68,10 +69,20 @@ test('player selection is a compact name/GM list; submitting ranks and vetoes sa
 });
 test('organizers have a visible rules page with methods, required first choices, veto-safe fallback, GM coverage, and player caps', async () => {
   const sample = sampleState();
-  const h = harness(false, { ...sample, events: [{ id: sample.event.id, name: sample.event.name }], revision: 1, definitionRevision: 1 }, '#rules');
+  const h = harness(false, { ...sample, organization: { name: 'Lantern Guild', logo: null }, events: [{ id: sample.event.id, name: sample.event.name }], revision: 1, definitionRevision: 1 }, '#rules');
   await new vm.Script(script).runInContext(h.context);
   const markup = h.element('#app').innerHTML;
   for (const label of ['Assignment rules', 'Balanced', 'Preference score', 'First-choice coverage', 'Lottery', 'Require every player to receive their first choice', 'Allow unranked games', 'Require at least one session per GM', 'Maximum sessions per player']) assert.ok(markup.includes(label), label);
   assert.match(markup, /id="event-select"/); assert.match(markup, /data-action="create-event"/);
+  assert.match(markup, /Lantern Guild/);
   assert.match(markup, /Vetoes are hard exclusions/);
+});
+test('organization settings expose a global name and safe image upload control', async () => {
+  const sample = sampleState();
+  const h = harness(false, { ...sample, organization: { name: 'Lantern Guild', logo: null }, events: [{ id: sample.event.id, name: sample.event.name }], revision: 1, definitionRevision: 1, organizationRevision: 0 }, '#settings');
+  await new vm.Script(script).runInContext(h.context);
+  const markup = h.element('#app').innerHTML;
+  assert.match(markup, /name="organizationName"/);
+  assert.match(markup, /id="organization-logo" type="file" accept="image\/png,image\/jpeg,image\/webp"/);
+  assert.match(markup, /Save branding/);
 });

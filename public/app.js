@@ -25,7 +25,12 @@ const icons = {
   logout: '<path d="M9 4H4v16h5m-1-8h14m-5-5 5 5-5 5"/>',
 };
 const icon = (name, className = '') => `<svg class="icon ${className}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.dice}</svg>`;
-const brand = () => `<span class="brand-mark">${icon('dice')}</span><span>tabletop<span class="brand-dot">.</span></span>`;
+const brand = (organization = data?.organization) => {
+  const name = organization?.name || 'tabletop.';
+  const mark = organization?.logo ? `<img src="${esc(organization.logo)}" alt="">` : icon('dice');
+  const label = name === 'tabletop.' ? 'tabletop<span class="brand-dot">.</span>' : esc(name);
+  return `<span class="brand-mark">${mark}</span><span>${label}</span>`;
+};
 const initials = (name) => name.split(/\s+/).slice(0, 2).map((s) => s[0]).join('').toUpperCase();
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function storageGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -85,10 +90,10 @@ const pages = {
   settings: ['Make it your gathering', 'The essentials, the play format, and the rules that hold it all together.'],
 };
 function renderOrganizer() {
-  document.title = `${data.event.name} · Tabletop`;
+  document.title = `${data.event.name} · ${data.organization?.name || 'Tabletop'}`;
   const nav = [['overview', 'grid', 'Overview'], ['games', 'dice', 'Game roster'], ['slots', 'calendar', 'Time slots'], ['responses', 'people', 'Player responses'], ['rules', 'sliders', 'Assignment rules'], ['schedule', 'calendar', 'Schedule']];
   $('#app').innerHTML = `<div class="workspace">
-    <aside class="sidebar"><a class="brand" href="organizer.html">${brand()}</a><div class="workspace-label">ORGANIZER WORKSPACE</div>
+    <aside class="sidebar"><a class="brand" href="${eventPage('organizer.html')}">${brand()}</a><div class="workspace-label">ORGANIZER WORKSPACE</div>
       <div class="event-switch"><span class="event-symbol">${icon('dice')}</span><label class="sr-only" for="event-select">Choose event</label><select id="event-select">${(data.events || []).map((event) => `<option value="${event.id}" ${event.id === data.event.id ? 'selected' : ''}>${esc(event.name)}</option>`).join('')}</select><button type="button" class="button small" data-action="create-event">${icon('plus')}New</button></div>
       <nav aria-label="Organizer">${nav.map(([id, symbol, label]) => `<a class="nav-item ${page === id ? 'active' : ''}" href="#${id}" ${page === id ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${label}</span>${id === 'responses' ? `<span class="nav-count">${data.responses.length}</span>` : ''}${page === id ? '<span class="active-dot"></span>' : ''}</a>`).join('')}</nav>
       <div class="sidebar-note"><span class="tiny-spark">✧</span><strong>Great stories start<br>around a table.</strong><p>You bring the people.<br>We’ll help with the plan.</p></div>
@@ -159,7 +164,7 @@ function scheduleGrid(schedule, admin = false) {
 }
 function settingsPage() {
   const event = data.event;
-  return `<form id="settings-form" class="settings-layout"><div class="stack"><section class="panel form-panel"><div class="section-heading"><div><h2>The gathering</h2><p>These details appear on the player questionnaire.</p></div></div><div class="form-content">${field('Event name', 'name', event.name, 'required maxlength="100"')}${field('Location <span class="optional">optional</span>', 'location', event.location, 'maxlength="160"')}<label class="field"><span>A welcome for your players <span class="optional">optional</span></span><textarea name="description" rows="4" maxlength="3000">${esc(event.description)}</textarea></label>${field('Time zone', 'timezone', event.timezone, 'required placeholder="Europe/Berlin" maxlength="80"')}<p class="field-help">Use an IANA time zone. Dates and times are entered in the event’s local time.</p></div></section>
+  return `<form id="settings-form" class="settings-layout"><div class="stack"><section class="panel form-panel"><div class="section-heading"><div><h2>Organisation branding</h2><p>Shown in the top-left on organizer and player pages for every event.</p></div></div><div class="form-content">${field('Organisation name', 'organizationName', data.organization?.name || 'tabletop.', 'id="organization-name" required maxlength="80"')}<label class="field"><span>Logo <span class="optional">optional</span></span><input id="organization-logo" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPEG, or WebP · up to 256 KB · maximum 1024 × 1024 pixels</small></label>${data.organization?.logo ? `<label class="check-option"><input id="remove-organization-logo" type="checkbox"><span><strong>Use the default icon</strong><small>Remove the uploaded logo from all event pages.</small></span></label>` : ''}<div class="form-footer"><span>Applies to the whole organisation.</span><button type="button" class="button primary" data-action="save-organization">${icon('check')}Save branding</button></div></div></section><section class="panel form-panel"><div class="section-heading"><div><h2>The gathering</h2><p>These details appear on the player questionnaire.</p></div></div><div class="form-content">${field('Event name', 'name', event.name, 'required maxlength="100"')}${field('Location <span class="optional">optional</span>', 'location', event.location, 'maxlength="160"')}<label class="field"><span>A welcome for your players <span class="optional">optional</span></span><textarea name="description" rows="4" maxlength="3000">${esc(event.description)}</textarea></label>${field('Time zone', 'timezone', event.timezone, 'required placeholder="Europe/Berlin" maxlength="80"')}<p class="field-help">Use an IANA time zone. Dates and times are entered in the event’s local time.</p></div></section>
       <section class="panel form-panel"><div class="section-heading"><div><h2>The way you play</h2><p>Choose how people move between games.</p></div></div><div class="form-content"><label class="field"><span>Play format</span><select name="mode"><option value="rotation" ${event.mode === 'rotation' ? 'selected' : ''}>Rotation · one game per time slot</option><option value="free-choice" ${event.mode === 'free-choice' ? 'selected' : ''}>Single session · one game for the event</option></select></label>${field('Tables running in parallel', 'parallelTables', event.parallelTables, 'required min="1" max="16"', 'number')}<label class="check-option"><input type="checkbox" name="acceptingResponses" ${event.acceptingResponses ? 'checked' : ''}><span><strong>Accept player preferences</strong><small>Close the questionnaire when you’re ready to generate the schedule.</small></span></label><div class="form-footer"><span>Saving changes clears the current schedule.</span><button class="button primary">${icon('check')}Save settings</button></div></div></section></div>
       <aside class="stack"><section class="panel compact"><h3>Your event, ready to share</h3><p>Players open the questionnaire in any browser. No account needed.</p>${btn('Copy player link', 'share', 'button', 'link')}</section><section class="panel compact"><h3>Keep a copy</h3><p>Download this event’s export for review. All events are saved automatically on the server.</p><a class="button" href="${eventApi('backup')}" download>${icon('download')}Download JSON</a></section><section class="panel compact"><h3>Another gathering</h3><p>Create a separate event without changing this one, its responses, or its schedule.</p>${btn('Create another event', 'create-event', 'button')}</section></aside></form>`;
 }
@@ -228,6 +233,14 @@ function downloadCsv(filename, rows) {
   const blob = new Blob(['\uFEFF', rows.map((row) => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = filename; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
+function readDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('Could not read the logo file.')));
+    reader.addEventListener('error', () => reject(reader.error || new Error('Could not read the logo file.')));
+    reader.readAsDataURL(file);
+  });
+}
 document.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]'); if (!button) return;
   const action = button.dataset.action, id = button.dataset.id;
@@ -241,6 +254,16 @@ document.addEventListener('click', async (event) => {
       showModal(`${modalHeader('A seat at the table, one link away', 'Share this questionnaire with your players.')}<div class="modal-content"><label class="field"><span>Player questionnaire link</span><input id="share-link" value="${esc(link)}" readonly></label><p class="field-help">Everyone uses this same link. Preferences save directly to this event on the server.</p><p class="field-help">${data.event.acceptingResponses ? 'The questionnaire is open for preferences.' : 'Preferences are currently closed. Reopen them in Event settings if needed.'}</p></div><div class="modal-footer"><span></span><div class="button-group"><a class="button" href="${eventPage('players.html')}" target="_blank" rel="noopener">Preview ${icon('external')}</a>${btn('Copy link', 'copy-link', 'button primary', 'link')}</div></div>`); return;
     }
     if (action === 'copy-link') { try { await navigator.clipboard.writeText($('#share-link').value); toast('Player link copied.'); } catch { $('#share-link').focus(); $('#share-link').select(); toast('Select and copy the highlighted link.'); } return; }
+    if (action === 'save-organization') {
+      const name = $('#organization-name');
+      if (!name.reportValidity()) return;
+      const file = $('#organization-logo').files[0];
+      if (file && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('Choose a PNG, JPEG, or WebP logo.');
+      if (file && file.size > 262144) throw new Error('Logo images must be 256 KB or smaller.');
+      const logo = file ? await readDataUrl(file) : $('#remove-organization-logo')?.checked ? null : data.organization?.logo || null;
+      data = await api('/api/admin/organization', { name: name.value, logo });
+      renderOrganizer(); toast('Organisation branding saved.'); return;
+    }
     if (action === 'logout') { await api('/api/logout', {}); setupNeeded = false; renderLogin(); return; }
     if (action === 'refresh') { data = await api('/api/admin'); renderOrganizer(); toast('You’re up to date.'); return; }
     if (action === 'create-event') {
@@ -324,7 +347,7 @@ $('#modal').addEventListener('click', (event) => { if (event.target === $('#moda
 try {
   if (location.protocol === 'file:') throw new Error('On Windows, use Start Tabletop.cmd to open this app. Or use its hosted web URL. Shared saving needs the app server to be running.');
   if (playerMode) await loadPlayer();
-  else { const auth = await api('/api/auth'); setupNeeded = !auth.initialized; if (auth.authenticated) { data = await api('/api/admin'); renderOrganizer(); } else renderLogin(); }
+  else { const auth = await api('/api/auth'); setupNeeded = !auth.initialized; data = { organization: auth.organization }; if (auth.authenticated) { data = await api('/api/admin'); renderOrganizer(); } else renderLogin(); }
 } catch (error) {
   $('#app').innerHTML = `<main id="main" class="loading"><h1>We couldn’t reach the table.</h1><p>${esc(error.message)}</p><a class="button" href="${playerMode ? 'players.html' : 'organizer.html'}">Try again</a></main>`;
 }

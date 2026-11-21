@@ -58,6 +58,17 @@ function event_fields(array $input): array {
         'allowUnranked' => bool_value($input, 'allowUnranked'), 'maxSessionsPerPlayer' => number($input['maxSessionsPerPlayer'] ?? 0, 'Sessions per player', 0, 30),
     ];
 }
+function organization_fields(array $input, array $current): array {
+    $name = value_text($input['name'] ?? null, 'Organization name', 80);
+    $logo = array_key_exists('logo', $input) ? $input['logo'] : ($current['logo'] ?? null);
+    if ($logo === null || $logo === '') return ['name' => $name, 'logo' => null];
+    if (!is_string($logo) || !preg_match('/\Adata:image\/(png|jpeg|webp);base64,([A-Za-z0-9+\/]*={0,2})\z/', $logo, $matches)) problem('Use a PNG, JPEG, or WebP logo image.');
+    $bytes = base64_decode($matches[2], true);
+    if ($bytes === false || strlen($bytes) > 262144) problem('Logo images must be 256 KB or smaller.');
+    $image = @getimagesizefromstring($bytes);
+    if (!$image || $image['mime'] !== 'image/' . $matches[1] || $image[0] > 1024 || $image[1] > 1024) problem('Use a valid PNG, JPEG, or WebP image no larger than 1024 × 1024 pixels.');
+    return ['name' => $name, 'logo' => $logo];
+}
 function blank_state(): array {
     return ['version' => 1, 'revision' => 0, 'definitionRevision' => 0,
         'event' => ['id' => uuid(), 'sample' => false] + event_fields(['name' => 'Our tabletop gathering', 'timezone' => 'Europe/Berlin', 'mode' => 'rotation', 'parallelTables' => 3]),
@@ -102,12 +113,15 @@ function private_state(array $state): array {
 function event_list(array $store): array {
     return array_values(array_map(fn($event) => ['id' => $event['event']['id'], 'name' => $event['event']['name'], 'location' => $event['event']['location']], $store['events']));
 }
-function public_state(array $state): array {
+function admin_state(array $state, array $store): array {
+    return private_state($state) + ['events' => event_list($store), 'organization' => $store['organization'], 'organizationRevision' => $store['organizationRevision']];
+}
+function public_state(array $state, array $organization): array {
     $schedule = null;
     if ($state['published'] && $state['schedule']) {
         $schedule = ['sessions' => array_map(function ($session) { $session['playerCount'] = count($session['playerIds']); unset($session['playerIds']); return $session; }, $state['schedule']['sessions'])];
     }
-    return ['event' => $state['event'], 'definitionRevision' => $state['definitionRevision'], 'games' => $state['games'], 'slots' => $state['slots'], 'published' => $state['published'], 'schedule' => $schedule];
+    return ['event' => $state['event'], 'organization' => $organization, 'definitionRevision' => $state['definitionRevision'], 'games' => $state['games'], 'slots' => $state['slots'], 'published' => $state['published'], 'schedule' => $schedule];
 }
 function schedule_fields(array $input, array $state): array {
     if ($state['event']['acceptingResponses']) problem('Close preferences before generating the schedule.');
@@ -182,14 +196,16 @@ function limit_attempt(array &$store, string $kind, int $maximum, int $seconds):
 }
 function signed_in(): bool { return ($_SESSION['organizer_until'] ?? 0) > time(); }
 function dispatch(string $action, array $input, ?array &$store, bool &$dirty): array {
-    if ($action === 'status') return ['initialized' => $store !== null, 'authenticated' => signed_in(), 'csrf' => $_SESSION['csrf']];
+    if ($action === 'status') return ['initialized' => $store !== null, 'authenticated' => signed_in(), 'csrf' => $_SESSION['csrf'],
+        'organization' => $store['organization'] ?? ['name' => 'tabletop.', 'logo' => null]];
     if ($action === 'setup') {
         if ($store !== null) problem('This app is already configured. Sign in as an organizer.', 409);
         $password = value_text($input['password'] ?? null, 'Organizer password', 200);
         if (strlen($password) < 12 || strlen($password) > 72) problem('Use an organizer password between 12 and 72 bytes.');
         $state = blank_state();
         $store = ['version' => 1, 'passwordHash' => password_hash($password, PASSWORD_DEFAULT), 'state' => $state,
-            'events' => [$state['event']['id'] => $state], 'activeEventId' => $state['event']['id'], 'limits' => []];
+            'events' => [$state['event']['id'] => $state], 'activeEventId' => $state['event']['id'],
+            'organization' => ['name' => 'tabletop.', 'logo' => null], 'organizationRevision' => 0, 'limits' => []];
         $dirty = true; session_regenerate_id(true); $_SESSION['organizer_until'] = time() + 43200;
         return ['ok' => true];
     }
@@ -210,10 +226,10 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
         $state = blank_state(); $state['event']['name'] = 'New gathering ' . (count($store['events']) + 1); $id = $state['event']['id'];
         $store['events'][$id] = $state; $store['activeEventId'] = $id; $store['state'] = $state;
         $dirty = true;
-        return private_state($state) + ['events' => event_list($store)];
+        return admin_state($state, $store);
     }
     $state =& $store['state'];
-    if ($action === 'event') return public_state($state);
+    if ($action === 'event') return public_state($state, $store['organization']);
     if ($action === 'my-response') {
         $token = $_SERVER['HTTP_X_TABLETOP_RESPONSE'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
         if (!preg_match('/\ABearer ([a-f0-9]{64})\z/', $token, $matches)) problem('No saved response on this browser.', 404);
@@ -243,9 +259,12 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
     }
     if (!signed_in()) problem('Please sign in as an organizer.', 401);
     if ($action === 'admin' || $action === 'backup') {
-        $result = private_state($state);
-        if ($action === 'admin') $result['events'] = event_list($store);
-        return $result;
+        return $action === 'admin' ? admin_state($state, $store) : private_state($state);
+    }
+    if ($action === 'organization-save') {
+        if (($input['expectedOrganizationRevision'] ?? -1) !== $store['organizationRevision']) problem('Organization branding changed in another window. Refresh before saving this change.', 409);
+        $store['organization'] = organization_fields($input, $store['organization']); $store['organizationRevision']++;
+        $dirty = true; return admin_state($state, $store);
     }
     $configurationAction = in_array($action, ['event-save', 'game-save', 'slot-save'], true);
     $currentRevision = $configurationAction ? $state['definitionRevision'] : $state['revision'];
@@ -287,7 +306,7 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
     } else problem('Unknown action.', 404);
     if ($configuration) { $state['schedule'] = null; $state['published'] = false; $state['definitionRevision']++; }
     $state['revision']++; $dirty = true; $store['events'][$state['event']['id']] = $state;
-    $result = private_state($state); $result['events'] = event_list($store); return $result;
+    return admin_state($state, $store);
 }
 
 $lock = null;
@@ -324,6 +343,9 @@ try {
             $legacy = $store['state']; $id = $legacy['event']['id'] ?? null;
             if (!is_string($id) || !preg_match('/\A[a-f0-9-]{1,100}\z/', $id)) throw new RuntimeException('Unsupported legacy event data.');
             $store['events'] = [$id => $legacy]; $store['activeEventId'] = $id; $migrationDirty = true;
+        }
+        if (!isset($store['organization']) || !isset($store['organizationRevision'])) {
+            $store['organization'] ??= ['name' => 'tabletop.', 'logo' => null]; $store['organizationRevision'] ??= 0; $migrationDirty = true;
         }
     }
     $selectedEvent = null;

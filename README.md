@@ -60,6 +60,7 @@ This is portable between compatible PHP hosts: move the app files and its existi
 
 **Event settings** controls the name, location, introduction, time zone, play format, parallel tables, and whether preferences are open. Times use the event’s IANA time zone, such as `Europe/Berlin`.
 
+- **Organisation branding** in Event settings changes the shared name and top-left logo across the organizer and player pages for every event. Logos can be PNG, JPEG, or WebP up to 256 KB and 1024 × 1024 pixels.
 - **Rotation:** one game per player per available time slot, subject to the session limit.
 - **Single session:** at most one session per player across the event.
 

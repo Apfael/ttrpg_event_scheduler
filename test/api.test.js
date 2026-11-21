@@ -63,7 +63,7 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   });
   const admin = client(running.url), guest = client(running.url);
   const password = 'Test-organizer-password-123';
-  let status = await admin.request('/api/auth'); assert.equal(status.initialized, false);
+  let status = await admin.request('/api/auth'); assert.equal(status.initialized, false); assert.equal(status.organization.name, 'tabletop.');
   let raw = await fetch(`${running.url}api.php?action=setup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
   assert.equal(raw.status, 403, 'CSRF protection applies to setup');
   await assert.rejects(admin.request('/api/setup', { password: 'short' }), /12 and 72/);
@@ -87,6 +87,17 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   state = await admin.request('/api/admin');
   assert.equal(state.event.id, firstEventId);
   assert.equal(state.events.length, 2);
+  assert.equal(state.organization.name, 'tabletop.');
+  state = await admin.request('/api/admin/organization', { name: 'The Lantern Guild', logo: null });
+  assert.equal(state.organization.name, 'The Lantern Guild');
+  assert.equal(state.organizationRevision, 1);
+  await assert.rejects(admin.request('/api/admin/organization', { name: 'Unsafe', logo: 'data:image/svg+xml;base64,PHN2Zy8+' }), /PNG, JPEG, or WebP/);
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l2cAAAAASUVORK5CYII=';
+  state = await admin.request('/api/admin/organization', { name: 'The Lantern Guild', logo: tinyPng });
+  assert.equal(state.organization.logo, tinyPng);
+  guest.eventId = firstEventId;
+  const publicBrand = (await guest.request('/api/event')).organization;
+  assert.equal(publicBrand.name, 'The Lantern Guild'); assert.equal(publicBrand.logo, tinyPng);
   for (const slot of [
     { label: 'Morning', date: '2027-01-09', start: '10:00', end: '13:00' },
     { label: 'Afternoon', date: '2027-01-09', start: '14:00', end: '17:00' },

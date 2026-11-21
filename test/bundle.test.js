@@ -73,7 +73,7 @@ test('organizers have a visible rules page with methods, required first choices,
   await new vm.Script(script).runInContext(h.context);
   const markup = h.element('#app').innerHTML;
   for (const label of ['Assignment rules', 'Balanced', 'Preference score', 'First-choice coverage', 'Lottery', 'Require every player to receive their first choice', 'Allow unranked games', 'Require at least one session per GM', 'Maximum sessions per player']) assert.ok(markup.includes(label), label);
-  assert.match(markup, /id="event-select"/); assert.match(markup, /data-action="create-event"/);
+  assert.match(markup, /id="event-select"/); assert.match(markup, /data-action="create-event"/); assert.doesNotMatch(markup, /event-symbol/);
   assert.match(markup, /Lantern Guild/);
   assert.match(markup, /Vetoes are hard exclusions/);
 });

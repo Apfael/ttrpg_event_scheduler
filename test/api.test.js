@@ -72,6 +72,21 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   await assert.rejects(guest.request('/api/login', { password: 'wrong' }), /did not match/);
   await assert.rejects(guest.request('/api/setup', { password }), /already configured/);
   let state = await admin.request('/api/admin'); assert.equal(state.responses.length, 0);
+  const firstEventId = state.event.id;
+  const secondEvent = await admin.request('/api/admin/create', {});
+  assert.notEqual(secondEvent.event.id, firstEventId);
+  assert.equal(secondEvent.event.name, 'New gathering 2');
+  assert.equal(secondEvent.events.length, 2);
+  assert.equal(secondEvent.responses.length, 0);
+  guest.eventId = firstEventId;
+  assert.equal((await guest.request('/api/event')).event.id, firstEventId);
+  guest.eventId = secondEvent.event.id;
+  assert.equal((await guest.request('/api/event')).event.id, secondEvent.event.id);
+  guest.eventId = firstEventId;
+  admin.eventId = firstEventId;
+  state = await admin.request('/api/admin');
+  assert.equal(state.event.id, firstEventId);
+  assert.equal(state.events.length, 2);
   for (const slot of [
     { label: 'Morning', date: '2027-01-09', start: '10:00', end: '13:00' },
     { label: 'Afternoon', date: '2027-01-09', start: '14:00', end: '17:00' },
@@ -79,11 +94,15 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   await assert.rejects(admin.request('/api/admin/slot', { label: 'Overlap', date: '2027-01-09', start: '11:00', end: '14:00' }), /overlap/);
   for (let i = 0; i < 3; i++) state = await admin.request('/api/admin/game', { title: `Adventure ${i + 1}`, gm: ['Alex', 'Robin', 'Sam'][i], minPlayers: 2, maxPlayers: 4, runs: 2, slotIds: [], description: 'Long description hidden from the compact list.', summary: 'A short pitch', system: 'Example system', adventure: '' });
   const initial = state, players = await Promise.all(Array.from({ length: 12 }, async (_, i) => {
-    const player = client(running.url); await player.request('/api/event');
+    const player = client(running.url); player.eventId = firstEventId; await player.request('/api/event');
     const payload = { name: `Player ${i}`, gm: '', preferences: [initial.games[i % 3].id, initial.games[(i + 1) % 3].id], vetoes: [initial.games[(i + 2) % 3].id], availability: initial.slots.map((s) => s.id) };
     const reply = await player.request('/api/responses', payload);
     return { player, payload, token: reply.token };
   }));
+  admin.eventId = secondEvent.event.id;
+  assert.equal((await admin.request('/api/admin')).responses.length, 0, 'responses remain isolated to their event');
+  admin.eventId = firstEventId;
+  state = await admin.request('/api/admin');
   state = await admin.request('/api/admin/event', initial.event);
   assert.equal(state.responses.length, 12, 'saving settings preserves responses received since the form was opened');
   await assert.rejects(admin.call('event-save', { ...state.event, expectedDefinitionRevision: -1 }), /changed in another window/);
@@ -131,7 +150,7 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   raw = await fetch(`${running.url}api.php?action=event`); assert.equal(raw.status, 500); assert.equal(await readFile(resolve(app, 'event-data.php'), 'utf8'), 'corrupt data');
   await writeFile(resolve(app, 'event-data.php'), stored);
   await stop(running.child); running = await start(directory);
-  const afterRestart = client(running.url); await afterRestart.request('/api/auth');
+  const afterRestart = client(running.url); afterRestart.eventId = firstEventId; await afterRestart.request('/api/auth');
   const restored = await afterRestart.request('/api/response', undefined, { headers: { Authorization: `Bearer ${first.token}` } }); assert.equal(restored.response.name, 'Updated player');
   await afterRestart.request('/api/login', { password }); state = await afterRestart.request('/api/admin'); assert.equal(state.responses.length, 12);
   await afterRestart.request('/api/logout', {}); await assert.rejects(afterRestart.request('/api/admin'), /sign in/);

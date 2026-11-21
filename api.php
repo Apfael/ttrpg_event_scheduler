@@ -99,6 +99,9 @@ function private_state(array $state): array {
     foreach ($state['responses'] as &$response) unset($response['tokenHash']);
     return $state;
 }
+function event_list(array $store): array {
+    return array_values(array_map(fn($event) => ['id' => $event['event']['id'], 'name' => $event['event']['name'], 'location' => $event['event']['location']], $store['events']));
+}
 function public_state(array $state): array {
     $schedule = null;
     if ($state['published'] && $state['schedule']) {
@@ -184,7 +187,9 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
         if ($store !== null) problem('This app is already configured. Sign in as an organizer.', 409);
         $password = value_text($input['password'] ?? null, 'Organizer password', 200);
         if (strlen($password) < 12 || strlen($password) > 72) problem('Use an organizer password between 12 and 72 bytes.');
-        $store = ['version' => 1, 'passwordHash' => password_hash($password, PASSWORD_DEFAULT), 'state' => blank_state(), 'limits' => []];
+        $state = blank_state();
+        $store = ['version' => 1, 'passwordHash' => password_hash($password, PASSWORD_DEFAULT), 'state' => $state,
+            'events' => [$state['event']['id'] => $state], 'activeEventId' => $state['event']['id'], 'limits' => []];
         $dirty = true; session_regenerate_id(true); $_SESSION['organizer_until'] = time() + 43200;
         return ['ok' => true];
     }
@@ -196,6 +201,17 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
         session_regenerate_id(true); $_SESSION['organizer_until'] = time() + 43200; return ['ok' => true];
     }
     if ($action === 'logout') { unset($_SESSION['organizer_until']); session_regenerate_id(true); return ['ok' => true]; }
+    if ($action === 'events') {
+        if (!signed_in()) problem('Please sign in as an organizer.', 401);
+        return ['events' => event_list($store)];
+    }
+    if (in_array($action, ['event-create', 'new-event'], true)) {
+        if (!signed_in()) problem('Please sign in as an organizer.', 401);
+        $state = blank_state(); $state['event']['name'] = 'New gathering ' . (count($store['events']) + 1); $id = $state['event']['id'];
+        $store['events'][$id] = $state; $store['activeEventId'] = $id; $store['state'] = $state;
+        $dirty = true;
+        return private_state($state) + ['events' => event_list($store)];
+    }
     $state =& $store['state'];
     if ($action === 'event') return public_state($state);
     if ($action === 'my-response') {
@@ -226,7 +242,11 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
         return ['ok' => true, 'token' => $token];
     }
     if (!signed_in()) problem('Please sign in as an organizer.', 401);
-    if ($action === 'admin' || $action === 'backup') return private_state($state);
+    if ($action === 'admin' || $action === 'backup') {
+        $result = private_state($state);
+        if ($action === 'admin') $result['events'] = event_list($store);
+        return $result;
+    }
     $configurationAction = in_array($action, ['event-save', 'game-save', 'slot-save'], true);
     $currentRevision = $configurationAction ? $state['definitionRevision'] : $state['revision'];
     $expectedRevision = $input[$configurationAction ? 'expectedDefinitionRevision' : 'expectedRevision'] ?? -1;
@@ -264,12 +284,10 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
         if (empty($state['schedule']['sessions'])) problem('Generate a schedule with at least one session.');
         if (!$state['published'] && !$state['schedule']['validForPublication']) problem('A required first-choice guarantee or GM coverage rule is unmet. Adjust the schedule or rules before publishing.');
         $state['published'] = !$state['published']; $state['event']['acceptingResponses'] = false;
-    } elseif ($action === 'new-event') {
-        if (($input['confirm'] ?? '') !== 'NEW EVENT') problem('Type NEW EVENT to replace this event.');
-        $revision = $state['revision']; $state = blank_state(); $state['revision'] = $revision;
     } else problem('Unknown action.', 404);
     if ($configuration) { $state['schedule'] = null; $state['published'] = false; $state['definitionRevision']++; }
-    $state['revision']++; $dirty = true; return private_state($state);
+    $state['revision']++; $dirty = true; $store['events'][$state['event']['id']] = $state;
+    $result = private_state($state); $result['events'] = event_list($store); return $result;
 }
 
 $lock = null;
@@ -282,7 +300,7 @@ try {
     if (!session_start()) throw new RuntimeException('PHP session storage is unavailable. Check the host session directory.');
     $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
     $action = $_GET['action'] ?? 'status'; $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-    $read = in_array($action, ['status', 'event', 'my-response', 'admin', 'backup'], true);
+    $read = in_array($action, ['status', 'event', 'my-response', 'admin', 'backup', 'events'], true);
     if ($method !== ($read ? 'GET' : 'POST')) problem('Method not allowed.', 405);
     $input = [];
     if (!$read) {
@@ -296,14 +314,29 @@ try {
     if (!is_file(LOCK_FILE)) { $created = @fopen(LOCK_FILE, 'x'); if ($created) { fwrite($created, DATA_GUARD); fclose($created); @chmod(LOCK_FILE, 0600); } }
     $lock = @fopen(LOCK_FILE, 'r+');
     if (!$lock || !flock($lock, LOCK_EX)) throw new RuntimeException('Make the app folder writable by PHP so it can store shared event data.');
-    $store = null;
+    $store = null; $migrationDirty = false;
     if (is_file(DATA_FILE)) {
         $raw = file_get_contents(DATA_FILE);
         if (!str_starts_with($raw, DATA_GUARD)) throw new RuntimeException('Shared data file is invalid. Restore a backup; it has not been overwritten.');
         $store = json_decode(substr($raw, strlen(DATA_GUARD)), true, 64, JSON_THROW_ON_ERROR);
         if (($store['version'] ?? null) !== 1 || !isset($store['state'], $store['passwordHash'])) throw new RuntimeException('Unsupported shared data file.');
+        if (!isset($store['events'])) {
+            $legacy = $store['state']; $id = $legacy['event']['id'] ?? null;
+            if (!is_string($id) || !preg_match('/\A[a-f0-9-]{1,100}\z/', $id)) throw new RuntimeException('Unsupported legacy event data.');
+            $store['events'] = [$id => $legacy]; $store['activeEventId'] = $id; $migrationDirty = true;
+        }
     }
-    $dirty = false; $result = dispatch($action, $input, $store, $dirty);
+    $selectedEvent = null;
+    if ($store !== null && !in_array($action, ['status', 'setup', 'login', 'logout', 'events', 'event-create', 'new-event'], true)) {
+        $selectedEvent = $_GET['event'] ?? $store['activeEventId'];
+        if (!is_string($selectedEvent) || !preg_match('/\A[a-f0-9-]{1,100}\z/', $selectedEvent) || !isset($store['events'][$selectedEvent])) problem('This event could not be found.', 404);
+        $store['state'] = $store['events'][$selectedEvent];
+    }
+    $dirty = $migrationDirty; $result = dispatch($action, $input, $store, $dirty);
+    if ($selectedEvent !== null && $dirty) {
+        $store['events'][$selectedEvent] = $store['state'];
+        if (($store['activeEventId'] ?? null) === $selectedEvent) $store['state'] = $store['events'][$selectedEvent];
+    }
     if ($dirty) save_store($store);
     flock($lock, LOCK_UN); fclose($lock); $lock = null;
     $status = $result['_status'] ?? 200; unset($result['_status']); http_response_code($status);

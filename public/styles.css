@@ -68,9 +68,9 @@
   .sidebar .brand { padding-left: 12px; margin-bottom: 35px; }
   .workspace-label { font-size: 9px; font-weight: 700; letter-spacing: 1.45px; color: var(--faint); padding-left: 13px; margin-bottom: 12px; }
   .event-switch { display: flex; gap: 10px; align-items: center; padding: 12px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 25px; }
-  .event-switch > div { min-width: 0; }
-  .event-switch strong { font-size: 11px; font-weight: 650; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .event-switch span:not(.event-symbol) { font-size: 10px; color: var(--muted); }
+  .event-switch select { flex: 1; width: 0; padding: 7px 5px; font-size: 11px; }
+  .event-switch .button { flex: 0 0 auto; padding: 7px 8px; }
+  .event-switch .button .icon { width: 14px; height: 14px; }
   .event-symbol { padding: 5px; display: flex; color: var(--accent); background: var(--accent-soft); border-radius: 6px; }
   .nav-item { display: flex; align-items: center; gap: 11px; padding: 12px 14px; color: var(--muted); border-radius: 7px; font-size: 12px; margin-bottom: 5px; }
   .nav-item .icon { width: 18px; height: 18px; }

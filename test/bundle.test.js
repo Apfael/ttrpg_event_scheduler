@@ -44,7 +44,7 @@ function harness(player, state, hash = '') {
     window: { addEventListener() {}, scrollTo() {} }, location: { hash, protocol: 'https:', href: `https://example.test/event/${player ? 'players' : 'organizer'}.html` },
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     matchMedia: () => ({ matches: false, addEventListener() {} }), structuredClone, TextEncoder, crypto: webcrypto, console,
-    URL, FormData: FakeFormData, fetch, setTimeout: () => 0, clearTimeout() {}, setInterval() {},
+    URL, URLSearchParams, FormData: FakeFormData, fetch, setTimeout: () => 0, clearTimeout() {}, setInterval() {},
   });
   return { context, element, listeners, posts, storage };
 }
@@ -67,9 +67,11 @@ test('player selection is a compact name/GM list; submitting ranks and vetoes sa
   assert.equal(h.storage.get(`tabletop-response-${state.event.id}`), 'a'.repeat(64));
 });
 test('organizers have a visible rules page with methods, required first choices, veto-safe fallback, GM coverage, and player caps', async () => {
-  const h = harness(false, { ...sampleState(), revision: 1, definitionRevision: 1 }, '#rules');
+  const sample = sampleState();
+  const h = harness(false, { ...sample, events: [{ id: sample.event.id, name: sample.event.name }], revision: 1, definitionRevision: 1 }, '#rules');
   await new vm.Script(script).runInContext(h.context);
   const markup = h.element('#app').innerHTML;
   for (const label of ['Assignment rules', 'Balanced', 'Preference score', 'First-choice coverage', 'Lottery', 'Require every player to receive their first choice', 'Allow unranked games', 'Require at least one session per GM', 'Maximum sessions per player']) assert.ok(markup.includes(label), label);
+  assert.match(markup, /id="event-select"/); assert.match(markup, /data-action="create-event"/);
   assert.match(markup, /Vetoes are hard exclusions/);
 });

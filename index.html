@@ -78,9 +78,9 @@
   .sidebar .brand { padding-left: 12px; margin-bottom: 35px; }
   .workspace-label { font-size: 9px; font-weight: 700; letter-spacing: 1.45px; color: var(--faint); padding-left: 13px; margin-bottom: 12px; }
   .event-switch { display: flex; gap: 10px; align-items: center; padding: 12px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 25px; }
-  .event-switch > div { min-width: 0; }
-  .event-switch strong { font-size: 11px; font-weight: 650; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .event-switch span:not(.event-symbol) { font-size: 10px; color: var(--muted); }
+  .event-switch select { flex: 1; width: 0; padding: 7px 5px; font-size: 11px; }
+  .event-switch .button { flex: 0 0 auto; padding: 7px 8px; }
+  .event-switch .button .icon { width: 14px; height: 14px; }
   .event-symbol { padding: 5px; display: flex; color: var(--accent); background: var(--accent-soft); border-radius: 6px; }
   .nav-item { display: flex; align-items: center; gap: 11px; padding: 12px 14px; color: var(--muted); border-radius: 7px; font-size: 12px; margin-bottom: 5px; }
   .nav-item .icon { width: 18px; height: 18px; }
@@ -769,17 +769,21 @@ const ACTIONS = {
   '/api/event': 'event', '/api/response': 'my-response', '/api/responses': 'respond',
   '/api/admin': 'admin', '/api/admin/event': 'event-save', '/api/admin/game': 'game-save',
   '/api/admin/slot': 'slot-save', '/api/admin/delete': 'delete', '/api/admin/publish': 'publish', '/api/admin/new': 'new-event',
+  '/api/admin/events': 'events', '/api/admin/create': 'event-create',
 };
 class SharedPlanner {
   constructor(endpoint = 'api.php', transport = globalThis.fetch.bind(globalThis)) {
     this.endpoint = endpoint; this.transport = transport; this.csrf = null; this.state = null; this.event = null;
+    this.eventId = new URLSearchParams(globalThis.location?.search || '').get('event');
   }
   async call(action, input, options = {}) {
     let response;
     const extraHeaders = { ...options.headers };
     if (extraHeaders.Authorization) { extraHeaders['X-Tabletop-Response'] = extraHeaders.Authorization; delete extraHeaders.Authorization; }
     try {
-      response = await this.transport(`${this.endpoint}?action=${encodeURIComponent(action)}`, {
+      const query = new URLSearchParams({ action });
+      if (this.eventId) query.set('event', this.eventId);
+      response = await this.transport(`${this.endpoint}?${query}`, {
         credentials: 'same-origin', cache: 'no-store', ...options,
         headers: { ...(input === undefined ? {} : { 'Content-Type': 'application/json', 'X-Tabletop-CSRF': this.csrf || '' }), ...extraHeaders },
         ...(input === undefined ? {} : { method: 'POST', body: JSON.stringify(input) }),
@@ -806,6 +810,7 @@ class SharedPlanner {
     if (path.startsWith('/api/admin/') && input !== undefined) body = { ...input, expectedRevision: this.state?.revision ?? -1, expectedDefinitionRevision: this.state?.definitionRevision ?? -1 };
     if (path === '/api/responses') body = { ...input, eventId: this.event?.event.id, definitionRevision: this.event?.definitionRevision };
     const result = await this.call(action, body, options);
+    if (path === '/api/admin/create') this.eventId = result.event.id;
     if (path === '/api/event') this.event = result;
     if (path === '/api/admin' || path.startsWith('/api/admin/')) this.state = result;
     return result;
@@ -856,6 +861,8 @@ const playerMode = JSON.parse($('#tabletop-data').textContent || 'null')?.kind =
 const shared = new SharedPlanner();
 let setupNeeded = false, playerDraftDirty = false;
 let playerToken, savedResponse = null, assignments = [], submitted = false, picks = [], vetoes = [], availability = [], playerName = '', playerGm = '', search = '';
+const eventPage = (page) => { const url = new URL(page, location.href); if (data?.event?.id) url.searchParams.set('event', data.event.id); return url.href; };
+const eventApi = (action) => { const url = new URL('api.php', location.href); url.searchParams.set('action', action); if (data?.event?.id) url.searchParams.set('event', data.event.id); return url.href; };
 async function api(path, body, options = {}) {
   try { return await shared.request(path, body, options); }
   catch (error) { if (error.status === 401 && !playerMode && path !== '/api/login') renderLogin(); throw error; }
@@ -901,12 +908,12 @@ function renderOrganizer() {
   const nav = [['overview', 'grid', 'Overview'], ['games', 'dice', 'Game roster'], ['slots', 'calendar', 'Time slots'], ['responses', 'people', 'Player responses'], ['rules', 'sliders', 'Assignment rules'], ['schedule', 'calendar', 'Schedule']];
   $('#app').innerHTML = `<div class="workspace">
     <aside class="sidebar"><a class="brand" href="organizer.html">${brand()}</a><div class="workspace-label">ORGANIZER WORKSPACE</div>
-      <div class="event-switch"><span class="event-symbol">${icon('dice')}</span><div><strong>${esc(data.event.name)}</strong><span>${esc(data.event.location || 'Your gathering')}</span></div></div>
+      <div class="event-switch"><span class="event-symbol">${icon('dice')}</span><label class="sr-only" for="event-select">Choose event</label><select id="event-select">${(data.events || []).map((event) => `<option value="${event.id}" ${event.id === data.event.id ? 'selected' : ''}>${esc(event.name)}</option>`).join('')}</select><button type="button" class="button small" data-action="create-event">${icon('plus')}New</button></div>
       <nav aria-label="Organizer">${nav.map(([id, symbol, label]) => `<a class="nav-item ${page === id ? 'active' : ''}" href="#${id}" ${page === id ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${label}</span>${id === 'responses' ? `<span class="nav-count">${data.responses.length}</span>` : ''}${page === id ? '<span class="active-dot"></span>' : ''}</a>`).join('')}</nav>
       <div class="sidebar-note"><span class="tiny-spark">✧</span><strong>Great stories start<br>around a table.</strong><p>You bring the people.<br>We’ll help with the plan.</p></div>
       <div class="sidebar-bottom"><a class="nav-item ${page === 'settings' ? 'active' : ''}" href="#settings">${icon('sliders')}<span>Event settings</span></a><button class="icon-button mobile-signout" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button><div class="organizer-profile"><span class="avatar">OT</span><div><strong>Organizer team</strong><span>Planning together</span></div><button class="icon-button" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></div>
     </aside>
-    <div class="workspace-body"><header class="topbar"><div class="breadcrumb">Your events<span>/</span><strong>${esc(data.event.name)}</strong></div><div class="topbar-actions">${tag(data.event.sample ? 'Sample event' : data.published ? 'Schedule published' : 'Planning in progress', data.published ? 'green' : '')}${themeButton()}<a class="button small" href="players.html" target="_blank" rel="noopener">${icon('external')}<span>Players</span></a><a class="button small" href="README.md">Instructions</a></div></header>
+    <div class="workspace-body"><header class="topbar"><div class="breadcrumb">Your events<span>/</span><strong>${esc(data.event.name)}</strong></div><div class="topbar-actions">${tag(data.event.sample ? 'Sample event' : data.published ? 'Schedule published' : 'Planning in progress', data.published ? 'green' : '')}${themeButton()}<a class="button small" href="${eventPage('players.html')}" target="_blank" rel="noopener">${icon('external')}<span>Players</span></a><a class="button small" href="README.md">Instructions</a></div></header>
     <main id="main" class="main-content" tabindex="-1"><div class="page-heading"><div><div class="eyebrow">LET’S MAKE A LITTLE MAGIC</div><h1>${pages[page][0]}</h1><p>${pages[page][1]}</p></div>${btn('Share player link', 'share', 'button primary', 'link')}</div>
     <div class="event-meta"><span>${icon('calendar')}${esc(eventDates())}</span><span>${icon('pin')}${esc(data.event.location || 'Location to be decided')}</span><span class="status"><i class="status-dot ${data.event.acceptingResponses ? '' : 'closed'}"></i>${data.event.acceptingResponses ? 'Collecting preferences' : data.published ? 'Schedule is live' : 'Preferences closed'}</span></div>
     ${page !== 'settings' ? stats() : ''}<div id="page-content">${renderPage()}</div>
@@ -926,7 +933,7 @@ function gamesPage() {
     <div class="list-toolbar"><label class="search">${icon('search')}<input id="game-search" placeholder="Find a game, system, or GM…" value="${esc(search)}" aria-label="Search the game roster"></label><span class="quiet">${plural(data.games.length, 'offering')} · ${plural(new Set(data.games.map((g) => g.gm.toLocaleLowerCase())).size, 'GM')}</span></div>
     <div class="roster-labels"><span>GAME & ADVENTURE</span><span>GAME MASTER</span><span>PLAYERS</span><span>SESSIONS</span><span></span></div><div id="game-list">${gameRows()}</div>
     <div class="panel-note">${icon('sliders')}<span>${data.event.ensureEveryGm ? 'Every game master must receive at least one session before publication.' : 'Scheduling will prioritize player preferences.'} <a href="#rules">Adjust assignment rules ${icon('arrow')}</a></span></div></section>
-    <div class="tip-card"><span class="tip-symbol">✧</span><div><strong>A little detail goes a long way.</strong><p>A short description helps players choose. Add longer adventure notes for anyone who wants to explore.</p></div><a href="players.html" target="_blank" rel="noopener">See the player view ${icon('external')}</a></div>`;
+    <div class="tip-card"><span class="tip-symbol">✧</span><div><strong>A little detail goes a long way.</strong><p>A short description helps players choose. Add longer adventure notes for anyone who wants to explore.</p></div><a href="${eventPage('players.html')}" target="_blank" rel="noopener">See the player view ${icon('external')}</a></div>`;
 }
 function gameRows() {
   const games = data.games.filter((g) => `${g.title} ${g.adventure} ${g.gm} ${g.system}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
@@ -973,7 +980,7 @@ function settingsPage() {
   const event = data.event;
   return `<form id="settings-form" class="settings-layout"><div class="stack"><section class="panel form-panel"><div class="section-heading"><div><h2>The gathering</h2><p>These details appear on the player questionnaire.</p></div></div><div class="form-content">${field('Event name', 'name', event.name, 'required maxlength="100"')}${field('Location <span class="optional">optional</span>', 'location', event.location, 'maxlength="160"')}<label class="field"><span>A welcome for your players <span class="optional">optional</span></span><textarea name="description" rows="4" maxlength="3000">${esc(event.description)}</textarea></label>${field('Time zone', 'timezone', event.timezone, 'required placeholder="Europe/Berlin" maxlength="80"')}<p class="field-help">Use an IANA time zone. Dates and times are entered in the event’s local time.</p></div></section>
       <section class="panel form-panel"><div class="section-heading"><div><h2>The way you play</h2><p>Choose how people move between games.</p></div></div><div class="form-content"><label class="field"><span>Play format</span><select name="mode"><option value="rotation" ${event.mode === 'rotation' ? 'selected' : ''}>Rotation · one game per time slot</option><option value="free-choice" ${event.mode === 'free-choice' ? 'selected' : ''}>Single session · one game for the event</option></select></label>${field('Tables running in parallel', 'parallelTables', event.parallelTables, 'required min="1" max="16"', 'number')}<label class="check-option"><input type="checkbox" name="acceptingResponses" ${event.acceptingResponses ? 'checked' : ''}><span><strong>Accept player preferences</strong><small>Close the questionnaire when you’re ready to generate the schedule.</small></span></label><div class="form-footer"><span>Saving changes clears the current schedule.</span><button class="button primary">${icon('check')}Save settings</button></div></div></section></div>
-      <aside class="stack"><section class="panel compact"><h3>Your event, ready to share</h3><p>Players open the questionnaire in any browser. No account needed.</p>${btn('Copy player link', 'share', 'button', 'link')}</section><section class="panel compact"><h3>Keep a copy</h3><p>Download an event export for review. The shared event data is saved automatically beside this app on the host. This export is an optional organizer backup.</p><a class="button" href="api.php?action=backup" download>${icon('download')}Download JSON</a></section><section class="panel compact"><h3>A fresh start</h3><p>Create a blank event on this server. Download a copy of the current event first if you need it.</p>${btn('Create a blank event', 'new-event', 'button danger-outline')}</section></aside></form>`;
+      <aside class="stack"><section class="panel compact"><h3>Your event, ready to share</h3><p>Players open the questionnaire in any browser. No account needed.</p>${btn('Copy player link', 'share', 'button', 'link')}</section><section class="panel compact"><h3>Keep a copy</h3><p>Download this event’s export for review. All events are saved automatically on the server.</p><a class="button" href="${eventApi('backup')}" download>${icon('download')}Download JSON</a></section><section class="panel compact"><h3>Another gathering</h3><p>Create a separate event without changing this one, its responses, or its schedule.</p>${btn('Create another event', 'create-event', 'button')}</section></aside></form>`;
 }
 function renderLogin() {
   $('#app').innerHTML = `<div class="auth-page"><header class="public-header"><a class="brand" href="organizer.html">${brand()}</a><div class="button-group"><a class="button small" href="players.html">Players</a>${themeButton()}</div></header><main id="main" class="auth-main"><div class="auth-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="auth-dice">${icon('dice')}</div></div><div class="eyebrow">ORGANIZER WORKSPACE</div><h1>${setupNeeded ? 'Set the table.' : 'Welcome back.'}</h1><p>${setupNeeded ? 'Choose a team password to protect this event. Everyone will use this same hosted app.' : 'Sign in to manage the event, assignment rules, and schedule.'}</p><form id="login-form" class="panel login-panel"><h2>${setupNeeded ? 'Create the organizer login' : 'Organizer sign-in'}</h2>${field('Organizer password', 'password', '', `required ${setupNeeded ? 'minlength="12" autocomplete="new-password"' : 'autocomplete="current-password"'}`, 'password')}${setupNeeded ? field('Confirm password', 'confirmPassword', '', 'required minlength="12" autocomplete="new-password"', 'password') : ''}<p id="login-error" class="form-error" role="alert"></p><button class="button primary">${setupNeeded ? 'Create workspace' : 'Open workspace'} ${icon('arrow')}</button></form><a class="subtle-link" href="players.html">Player questionnaire ${icon('arrow')}</a></main><footer class="public-footer"><a href="README.md">Hosting and usage instructions</a></footer></div>`;
@@ -1009,7 +1016,7 @@ async function loadPlayer() {
 }
 function renderPlayer() {
   document.title = `${data.event.name} · Preferences`;
-  $('#app').innerHTML = `<div class="player-page simple-player"><header class="public-header"><a class="brand" href="players.html">${brand()}</a>${themeButton()}</header><main id="main" class="player-main"><section class="simple-player-heading"><h1>${esc(data.event.name)}</h1><p>${esc(eventDates())}${data.event.location ? ` · ${esc(data.event.location)}` : ''}</p>${data.event.description ? `<details class="description"><summary>About the event</summary><p>${esc(data.event.description)}</p></details>` : ''}</section>${data.published ? publishedPlayer() : submitted ? confirmationPlayer() : !data.event.acceptingResponses ? `<section class="panel">${empty('Preferences are closed', 'The organizers are preparing the schedule. Your assignments will appear at this same link.')}</section>` : questionnaire()}</main><footer class="public-footer"><span>Preferences save directly to the shared event.</span><a href="organizer.html">Organizer</a></footer></div>`;
+  $('#app').innerHTML = `<div class="player-page simple-player"><header class="public-header"><a class="brand" href="${eventPage('players.html')}">${brand()}</a>${themeButton()}</header><main id="main" class="player-main"><section class="simple-player-heading"><h1>${esc(data.event.name)}</h1><p>${esc(eventDates())}${data.event.location ? ` · ${esc(data.event.location)}` : ''}</p>${data.event.description ? `<details class="description"><summary>About the event</summary><p>${esc(data.event.description)}</p></details>` : ''}</section>${data.published ? publishedPlayer() : submitted ? confirmationPlayer() : !data.event.acceptingResponses ? `<section class="panel">${empty('Preferences are closed', 'The organizers are preparing the schedule. Your assignments will appear at this same link.')}</section>` : questionnaire()}</main><footer class="public-footer"><span>Preferences save directly to this event.</span><a href="${eventPage('organizer.html')}">Organizer</a></footer></div>`;
 }
 function questionnaire() {
   if (!data.games.length || !data.slots.length) return `<section class="panel">${empty('The event is being prepared', 'The organizers are adding games and dates. Check back at this same link shortly.')}</section>`;
@@ -1049,12 +1056,17 @@ document.addEventListener('click', async (event) => {
     if (action === 'add-game' || action === 'edit-game') { gameModal(id); return; }
     if (action === 'add-slot' || action === 'edit-slot') { slotModal(id); return; }
     if (action === 'share') {
-      const link = new URL('players.html', location.href).href;
-      showModal(`${modalHeader('A seat at the table, one link away', 'Share this questionnaire with your players.')}<div class="modal-content"><label class="field"><span>Player questionnaire link</span><input id="share-link" value="${esc(link)}" readonly></label><p class="field-help">Everyone uses this same link. Preferences save directly to this app’s shared event data on the server.</p><p class="field-help">${data.event.acceptingResponses ? 'The questionnaire is open for preferences.' : 'Preferences are currently closed. Reopen them in Event settings if needed.'}</p></div><div class="modal-footer"><span></span><div class="button-group"><a class="button" href="players.html" target="_blank" rel="noopener">Preview ${icon('external')}</a>${btn('Copy link', 'copy-link', 'button primary', 'link')}</div></div>`); return;
+      const link = eventPage('players.html');
+      showModal(`${modalHeader('A seat at the table, one link away', 'Share this questionnaire with your players.')}<div class="modal-content"><label class="field"><span>Player questionnaire link</span><input id="share-link" value="${esc(link)}" readonly></label><p class="field-help">Everyone uses this same link. Preferences save directly to this event on the server.</p><p class="field-help">${data.event.acceptingResponses ? 'The questionnaire is open for preferences.' : 'Preferences are currently closed. Reopen them in Event settings if needed.'}</p></div><div class="modal-footer"><span></span><div class="button-group"><a class="button" href="${eventPage('players.html')}" target="_blank" rel="noopener">Preview ${icon('external')}</a>${btn('Copy link', 'copy-link', 'button primary', 'link')}</div></div>`); return;
     }
     if (action === 'copy-link') { try { await navigator.clipboard.writeText($('#share-link').value); toast('Player link copied.'); } catch { $('#share-link').focus(); $('#share-link').select(); toast('Select and copy the highlighted link.'); } return; }
     if (action === 'logout') { await api('/api/logout', {}); setupNeeded = false; renderLogin(); return; }
     if (action === 'refresh') { data = await api('/api/admin'); renderOrganizer(); toast('You’re up to date.'); return; }
+    if (action === 'create-event') {
+      data = await api('/api/admin/create', {});
+      const url = new URL(location.href); url.searchParams.set('event', data.event.id); url.hash = 'games';
+      history.replaceState(null, '', url); page = 'games'; renderOrganizer(); toast('A new event is ready to plan.'); return;
+    }
     if (action === 'refresh-player') { await loadPlayer(); toast('You’re up to date.'); return; }
     if (action === 'edit-preferences') { submitted = false; renderPlayer(); $('#player-form input[name="name"]').focus(); return; }
     if (action.startsWith('delete-')) {
@@ -1062,7 +1074,6 @@ document.addEventListener('click', async (event) => {
       if (!confirm(`Remove this ${type}? Any generated schedule will be cleared.`)) return;
       await mutate('delete', { type, id }, `${type[0].toUpperCase() + type.slice(1)} removed.`); $('#modal').close(); return;
     }
-    if (action === 'new-event') { showModal(`${modalHeader('Start a new gathering', 'This replaces the event, games, responses, and schedule on this server.')}<form id="new-event-form"><div class="modal-content"><p>Download your JSON export first if you want to keep a reference copy.</p>${field('Type NEW EVENT to continue', 'confirm', '', 'required pattern="NEW EVENT" autocomplete="off"')}<p class="form-error" id="modal-error" role="alert"></p></div><div class="modal-footer"><a class="button" href="api.php?action=backup" download>Download current event</a><button class="button primary">Create blank event</button></div></form>`); return; }
     if (action === 'publish') { button.disabled = true; await mutate('publish', {}, data.published ? 'Schedule unpublished.' : 'Schedule published. Players can see their assignments on the same link.'); return; }
     if (action === 'export-responses') {
       downloadCsv('tabletop-preferences.csv', [['Player', 'Ranked preferences', 'Vetoes', 'Availability'], ...data.responses.map((r) => [r.name, r.preferences.map((id, i) => `${i + 1}. ${data.games.find((g) => g.id === id)?.title || ''}`).join(' | '), (r.vetoes || []).map((id) => data.games.find((g) => g.id === id)?.title || '').join(' | '), r.availability.map((id) => data.slots.find((s) => s.id === id)?.label || '').join(' | ')])]); return;
@@ -1078,6 +1089,9 @@ document.addEventListener('input', (event) => {
   if (event.target.name === 'name' && event.target.closest('#player-form')) playerName = event.target.value;
 });
 document.addEventListener('change', (event) => {
+  if (event.target.id === 'event-select') {
+    const url = new URL(location.href); url.searchParams.set('event', event.target.value); location.href = url.href; return;
+  }
   if (event.target.closest('#player-form')) playerDraftDirty = true;
   if (event.target.name === 'gm' && event.target.closest('#player-form')) playerGm = event.target.value;
   if (event.target.dataset.rank) {
@@ -1109,7 +1123,6 @@ document.addEventListener('submit', async (event) => {
     if (form.id === 'settings-form') { await mutate('event', { ...data.event, ...values, parallelTables: Number(values.parallelTables), acceptingResponses: fields.has('acceptingResponses') }, 'Settings saved.'); }
     if (form.id === 'rules-form') { await mutate('event', { ...data.event, assignmentMethod: values.assignmentMethod, requireFirstChoice: fields.has('requireFirstChoice'), allowUnranked: fields.has('allowUnranked'), ensureEveryGm: fields.has('ensureEveryGm'), maxSessionsPerPlayer: Number(values.maxSessionsPerPlayer) }, 'Assignment rules saved.'); }
     if (form.id === 'schedule-form') { await mutate('generate', { method: values.method }, 'Draft schedule ready to review.'); }
-    if (form.id === 'new-event-form') { await mutate('new', { confirm: values.confirm }, 'A fresh gathering, ready to plan.'); $('#modal').close(); }
     if (form.id === 'player-form') {
       if (!picks.length) throw new Error('Choose at least one game you’d enjoy.');
       if (!availability.length) throw new Error('Choose at least one time slot you can join.');

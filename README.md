@@ -2,7 +2,7 @@
 
 **[Start locally](Start%20Tabletop.cmd) · [Start on LAN](Start%20Tabletop%20LAN.cmd) · [Stop](Stop%20Tabletop.cmd) · [Organizer](organizer.html) · [Players](players.html)**
 
-One hosted app, one shared event. Organizers configure games and rules, share the player link, and receive preferences automatically. Players submit in their browser. All changes go to the same protected event data file beside the app. No questionnaire exports, response files, uploads by players, or manual imports.
+One hosted app can manage multiple independent events. Organizers create and switch between events, then share an event-specific player link. Games, preferences, and schedules stay separate for each event in the same protected data file. Players submit in their browser; no questionnaire exports, response files, uploads by players, or manual imports are needed.
 
 The player questionnaire is a compact list of **game name, GM, and priority**. Capacity, system, adventure name, and descriptions are hidden under **More about this**. The interface adapts to phones and desktops and follows the system’s light/dark theme.
 
@@ -48,9 +48,9 @@ gathering/
 1. Upload the files to your PHP web host. The development/source subfolders are not required on the host.
 2. Open `https://your-host.example/gathering/organizer.html` yourself before sharing the link. The first visit lets you set the shared organizer password (12–72 bytes). This protects event setup, player responses, and scheduling. It is the app’s initial team login, not a software installation.
 3. Configure the event, offerings, dates, and assignment rules in that browser page.
-4. Share `https://your-host.example/gathering/players.html`, or use **Share player link**. Keep using this same link throughout the event.
+4. Create or select an event in the organizer workspace, then use **Share player link**. The resulting `players.html?event=<id>` link is specific to that event; keep using it throughout that event.
 
-PHP creates `event-data.php` and `event-lock.php` in the same folder. The first contains the entire event and authentication metadata as JSON behind a PHP access guard. The second coordinates writes. Temporary guarded files are used during atomic saves, then renamed/removed. These files should not be committed or overwritten when updating the application.
+PHP creates `event-data.php` and `event-lock.php` in the same folder. The first contains all events and authentication metadata as JSON behind a PHP access guard. The second coordinates writes. Temporary guarded files are used during atomic saves, then renamed/removed. These files should not be committed or overwritten when updating the application.
 
 If the app reports a write failure, grant the hosting account’s PHP process write access to this folder using the host’s file manager. If PHP is downloaded or displayed as text, that hosting location is not executing PHP and is unsuitable. Opening HTML by double-clicking it is also insufficient for shared automatic saving; use the hosted HTTPS link.
 
@@ -115,14 +115,14 @@ Publish when ready. The **same player link** now displays the schedule; players 
 
 ## Data, security, and backups
 
-- The authoritative shared store is `event-data.php`, in the same folder as the app. It holds configuration, responses, schedule, the hashed organizer password, response credential hashes, and bounded rate-limit metadata.
+- The authoritative shared store is `event-data.php`, in the same folder as the app. It holds each event’s configuration, responses, and schedule, plus the hashed organizer password, response credential hashes, and bounded rate-limit metadata.
 - Reads/writes coordinate through PHP file locking; changes use an atomic temporary-file rename. Concurrent player requests update the current store without replacing each other’s responses.
 - Direct HTTP access to the data/lock PHP files returns 404 when PHP is configured correctly. Keep PHP execution enabled. Do not move the data file to a static-only public host.
 - Organizer sessions use HTTP-only, same-site cookies and last up to 12 hours, subject to host session retention. Writes require a CSRF token. Requests and collection sizes are bounded. Players cannot call organizer actions.
 - Basic IP limits apply to login attempts and response submissions. Proxied clients may share the same limit; forwarded client IPs are not trusted automatically.
-- Back up `event-data.php` privately for full recovery. To restore, take the app out of use briefly, replace this file with the backup, and reopen it. An organizer JSON export excludes credentials and is a review/export copy, not a complete restore package.
+- Back up `event-data.php` privately for full recovery. To restore, take the app out of use briefly, replace this file with the backup, and reopen it. An event’s organizer JSON export excludes credentials and is a review/export copy, not a complete restore package.
 - When updating the app, replace the HTML files and `api.php`; preserve the existing data file. Stop organizer editing briefly during an update. Do not sync an actively written data file across multiple running hosts: use one authoritative server.
-- This version supports one event per app folder, 100 offerings, 30 slots, 16 parallel tables, and 2,000 responses. These limits are validation bounds, not performance guarantees for very large events. Create another hosted folder for a separate event.
+- Each event supports 100 offerings, 30 slots, 16 parallel tables, and 2,000 responses. These limits are validation bounds, not performance guarantees for very large events. Create multiple events in the same organizer workspace; each has its own player link and data.
 
 ## For contributors
 

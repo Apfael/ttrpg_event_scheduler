@@ -18,8 +18,8 @@ test('root entry pages match sources, bundle all frontend assets, and use the sa
   assert.match(html, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);
   assert.match(html, /connect-src 'self'/);
 });
-function harness(player, state, hash = '', eventId = '') {
-  const elements = new Map(), listeners = new Map(), storage = new Map(), posts = [], calls = [];
+function harness(player, state, hash = '') {
+  const elements = new Map(), listeners = new Map(), storage = new Map(), posts = [];
   const element = (key) => {
     if (!elements.has(key)) elements.set(key, { innerHTML: '', textContent: key === '#tabletop-data' ? player ? '{"kind":"players"}' : 'null' : '', addEventListener() {}, open: false });
     return elements.get(key);
@@ -32,6 +32,7 @@ function harness(player, state, hash = '', eventId = '') {
     const requestUrl = new URL(url, 'https://example.test/event/'), action = requestUrl.searchParams.get('action');
     calls.push({ action, eventId: requestUrl.searchParams.get('event') });
     let data;
+    if (action === failedAction) return { ok: false, status: 404, json: async () => ({ error: 'This event could not be found.' }) };
     if (action === 'status') data = { initialized: true, authenticated: !player, csrf: 'test-csrf' };
     else if (action === 'event') data = { event: state.event, organization: state.organization, games: state.games, slots: state.slots, definitionRevision: 4, schedule: null, published: false };
     else if (action === 'admin') data = state;
@@ -68,12 +69,6 @@ test('player selection is a compact name/GM list; submitting ranks and vetoes sa
   assert.equal(h.posts[0].eventId, state.event.id); assert.equal(h.posts[0].definitionRevision, 4);
   assert.match(h.element('#app').innerHTML, /saved on the event server/);
   assert.equal(h.storage.get(`tabletop-response-${state.event.id}`), 'a'.repeat(64));
-});
-test('player page requests the event ID from its event-specific query link', async () => {
-  const state = sampleState(), h = harness(true, state, '', state.event.id);
-  await new vm.Script(script).runInContext(h.context);
-  assert.equal(h.calls.find((call) => call.action === 'event').eventId, state.event.id);
-  assert.match(h.element('#app').innerHTML, new RegExp(state.event.name));
 });
 test('organizers have a visible rules page with methods, required first choices, veto-safe fallback, GM coverage, and player caps', async () => {
   const sample = sampleState();

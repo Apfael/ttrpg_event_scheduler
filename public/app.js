@@ -353,7 +353,7 @@ try {
   if (playerMode) await loadPlayer();
   else { const auth = await api('/api/auth'); setupNeeded = !auth.initialized; data = { organization: auth.organization }; if (auth.authenticated) { data = await api('/api/admin'); renderOrganizer(); } else renderLogin(); }
 } catch (error) {
-  $('#app').innerHTML = `<main id="main" class="loading"><h1>We couldn’t reach the table.</h1><p>${esc(error.message)}</p><a class="button" href="${playerMode ? 'players.html' : 'organizer.html'}">Try again</a></main>`;
+  $('#app').innerHTML = `<main id="main" class="loading"><h1>We couldn’t reach the table.</h1><p>${esc(error.message)}</p><a class="button" href="${esc(location.href)}">Try again</a></main>`;
 }
 
 setInterval(async () => {

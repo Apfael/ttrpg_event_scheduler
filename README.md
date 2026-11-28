@@ -48,7 +48,7 @@ gathering/
 1. Upload the files to your PHP web host. The development/source subfolders are not required on the host.
 2. Open `https://your-host.example/gathering/organizer.html` yourself before sharing the link. The first visit lets you set the shared organizer password (12–72 bytes). This protects event setup, player responses, and scheduling. It is the app’s initial team login, not a software installation.
 3. Configure the event, offerings, dates, and assignment rules in that browser page.
-4. Create or select an event in the organizer workspace, then use **Share player link**. The resulting `players.html?event=<id>` link is specific to that event; keep using it throughout that event.
+4. Create or select an event in the organizer workspace. Use **Set as player default** to choose which event opens at the permanent `players.html` link. **Share player link** still creates an event-specific `players.html?event=<id>` link; use it when players should go directly to a particular event.
 
 PHP creates `event-data.php` and `event-lock.php` in the same folder. The first contains all events and authentication metadata as JSON behind a PHP access guard. The second coordinates writes. Temporary guarded files are used during atomic saves, then renamed/removed. These files should not be committed or overwritten when updating the application.
 

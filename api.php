@@ -114,7 +114,7 @@ function event_list(array $store): array {
     return array_values(array_map(fn($event) => ['id' => $event['event']['id'], 'name' => $event['event']['name'], 'location' => $event['event']['location']], $store['events']));
 }
 function admin_state(array $state, array $store): array {
-    return private_state($state) + ['events' => event_list($store), 'organization' => $store['organization'], 'organizationRevision' => $store['organizationRevision']];
+    return private_state($state) + ['events' => event_list($store), 'defaultEventId' => $store['defaultEventId'], 'organization' => $store['organization'], 'organizationRevision' => $store['organizationRevision']];
 }
 function public_state(array $state, array $organization): array {
     $schedule = null;
@@ -204,7 +204,7 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
         if (strlen($password) < 12 || strlen($password) > 72) problem('Use an organizer password between 12 and 72 bytes.');
         $state = blank_state();
         $store = ['version' => 1, 'passwordHash' => password_hash($password, PASSWORD_DEFAULT), 'state' => $state,
-            'events' => [$state['event']['id'] => $state], 'activeEventId' => $state['event']['id'],
+            'events' => [$state['event']['id'] => $state], 'activeEventId' => $state['event']['id'], 'defaultEventId' => $state['event']['id'],
             'organization' => ['name' => 'tabletop.', 'logo' => null], 'organizationRevision' => 0, 'limits' => []];
         $dirty = true; session_regenerate_id(true); $_SESSION['organizer_until'] = time() + 43200;
         return ['ok' => true];
@@ -264,6 +264,10 @@ function dispatch(string $action, array $input, ?array &$store, bool &$dirty): a
     if ($action === 'organization-save') {
         if (($input['expectedOrganizationRevision'] ?? -1) !== $store['organizationRevision']) problem('Organization branding changed in another window. Refresh before saving this change.', 409);
         $store['organization'] = organization_fields($input, $store['organization']); $store['organizationRevision']++;
+        $dirty = true; return admin_state($state, $store);
+    }
+    if ($action === 'default-event') {
+        $store['defaultEventId'] = $state['event']['id'];
         $dirty = true; return admin_state($state, $store);
     }
     $configurationAction = in_array($action, ['event-save', 'game-save', 'slot-save'], true);
@@ -347,10 +351,15 @@ try {
         if (!isset($store['organization']) || !isset($store['organizationRevision'])) {
             $store['organization'] ??= ['name' => 'tabletop.', 'logo' => null]; $store['organizationRevision'] ??= 0; $migrationDirty = true;
         }
+        if (!isset($store['defaultEventId']) || !isset($store['events'][$store['defaultEventId']])) {
+            $default = $store['activeEventId'] ?? array_key_first($store['events']);
+            if (!isset($store['events'][$default])) $default = array_key_first($store['events']);
+            $store['defaultEventId'] = $default; $migrationDirty = true;
+        }
     }
     $selectedEvent = null;
     if ($store !== null && !in_array($action, ['status', 'setup', 'login', 'logout', 'events', 'event-create', 'new-event'], true)) {
-        $selectedEvent = $_GET['event'] ?? $store['activeEventId'];
+        $selectedEvent = $_GET['event'] ?? $store['defaultEventId'];
         if (!is_string($selectedEvent) || !preg_match('/\A[a-f0-9-]{1,100}\z/', $selectedEvent) || !isset($store['events'][$selectedEvent])) problem('This event could not be found.', 404);
         $store['state'] = $store['events'][$selectedEvent];
     }

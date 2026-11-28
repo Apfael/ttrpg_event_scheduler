@@ -78,6 +78,7 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   assert.equal(secondEvent.event.name, 'New gathering 2');
   assert.equal(secondEvent.events.length, 2);
   assert.equal(secondEvent.responses.length, 0);
+  assert.equal(secondEvent.defaultEventId, firstEventId, 'creating an event leaves the player default unchanged');
   guest.eventId = firstEventId;
   assert.equal((await guest.request('/api/event')).event.id, firstEventId);
   guest.eventId = secondEvent.event.id;
@@ -87,6 +88,16 @@ test('shared PHP app: automatic submissions, one durable store, rules, vetoes, p
   state = await admin.request('/api/admin');
   assert.equal(state.event.id, firstEventId);
   assert.equal(state.events.length, 2);
+  admin.eventId = secondEvent.event.id;
+  state = await admin.request('/api/admin');
+  state = await admin.request('/api/admin/default', {});
+  assert.equal(state.defaultEventId, secondEvent.event.id);
+  const defaultPlayer = client(running.url);
+  assert.equal((await defaultPlayer.request('/api/event')).event.id, secondEvent.event.id, 'the permanent player URL uses the organizer-selected default');
+  defaultPlayer.eventId = firstEventId;
+  assert.equal((await defaultPlayer.request('/api/event')).event.id, firstEventId, 'an explicit event link overrides the player default');
+  admin.eventId = firstEventId;
+  state = await admin.request('/api/admin');
   assert.equal(state.organization.name, 'tabletop.');
   state = await admin.request('/api/admin/organization', { name: 'The Lantern Guild', logo: null });
   assert.equal(state.organization.name, 'The Lantern Guild');

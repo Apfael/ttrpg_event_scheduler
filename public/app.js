@@ -94,7 +94,7 @@ function renderOrganizer() {
   const nav = [['overview', 'grid', 'Overview'], ['games', 'dice', 'Game roster'], ['slots', 'calendar', 'Time slots'], ['responses', 'people', 'Player responses'], ['rules', 'sliders', 'Assignment rules'], ['schedule', 'calendar', 'Schedule']];
   $('#app').innerHTML = `<div class="workspace">
     <aside class="sidebar"><a class="brand" href="${eventPage('organizer.html')}">${brand()}</a><div class="workspace-label">ORGANIZER WORKSPACE</div>
-      <div class="event-switch"><label class="sr-only" for="event-select">Choose event</label><select id="event-select">${(data.events || []).map((event) => `<option value="${event.id}" ${event.id === data.event.id ? 'selected' : ''}>${esc(event.name)}</option>`).join('')}</select><button type="button" class="button small" data-action="create-event">${icon('plus')}New</button></div>
+      <div class="event-switch"><label class="sr-only" for="event-select">Choose event</label><select id="event-select">${(data.events || []).map((event) => `<option value="${event.id}" ${event.id === data.event.id ? 'selected' : ''}>${esc(event.name)}${event.id === data.defaultEventId ? ' · Player default' : ''}</option>`).join('')}</select><button type="button" class="button small" data-action="create-event">${icon('plus')}New</button><button type="button" class="button small" data-action="set-default-event" ${data.event.id === data.defaultEventId ? 'disabled' : ''}>${data.event.id === data.defaultEventId ? 'Player default' : 'Set as player default'}</button></div>
       <nav aria-label="Organizer">${nav.map(([id, symbol, label]) => `<a class="nav-item ${page === id ? 'active' : ''}" href="#${id}" ${page === id ? 'aria-current="page"' : ''}>${icon(symbol)}<span>${label}</span>${id === 'responses' ? `<span class="nav-count">${data.responses.length}</span>` : ''}${page === id ? '<span class="active-dot"></span>' : ''}</a>`).join('')}</nav>
       <div class="sidebar-note"><span class="tiny-spark">✧</span><strong>Great stories start<br>around a table.</strong><p>You bring the people.<br>We’ll help with the plan.</p></div>
       <div class="sidebar-bottom"><a class="nav-item ${page === 'settings' ? 'active' : ''}" href="#settings">${icon('sliders')}<span>Event settings</span></a><button class="icon-button mobile-signout" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button><div class="organizer-profile"><span class="avatar">OT</span><div><strong>Organizer team</strong><span>Planning together</span></div><button class="icon-button" data-action="logout" title="Sign out" aria-label="Sign out">${icon('logout')}</button></div></div>
@@ -270,6 +270,10 @@ document.addEventListener('click', async (event) => {
       data = await api('/api/admin/create', {});
       const url = new URL(location.href); url.searchParams.set('event', data.event.id); url.hash = 'games';
       history.replaceState(null, '', url); page = 'games'; renderOrganizer(); toast('A new event is ready to plan.'); return;
+    }
+    if (action === 'set-default-event') {
+      data = await api('/api/admin/default', {});
+      renderOrganizer(); toast('Player default updated.'); return;
     }
     if (action === 'refresh-player') { await loadPlayer(); toast('You’re up to date.'); return; }
     if (action === 'edit-preferences') { submitted = false; renderPlayer(); $('#player-form input[name="name"]').focus(); return; }

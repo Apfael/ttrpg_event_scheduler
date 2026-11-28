@@ -18,8 +18,8 @@ test('root entry pages match sources, bundle all frontend assets, and use the sa
   assert.match(html, /type="file" accept="image\/png,image\/jpeg,image\/webp"/);
   assert.match(html, /connect-src 'self'/);
 });
-function harness(player, state, hash = '') {
-  const elements = new Map(), listeners = new Map(), storage = new Map(), posts = [];
+function harness(player, state, hash = '', eventId = '', failedAction = '') {
+  const elements = new Map(), listeners = new Map(), storage = new Map(), posts = [], calls = [];
   const element = (key) => {
     if (!elements.has(key)) elements.set(key, { innerHTML: '', textContent: key === '#tabletop-data' ? player ? '{"kind":"players"}' : 'null' : '', addEventListener() {}, open: false });
     return elements.get(key);
@@ -30,7 +30,7 @@ function harness(player, state, hash = '') {
   }
   const fetch = async (url, options = {}) => {
     const requestUrl = new URL(url, 'https://example.test/event/'), action = requestUrl.searchParams.get('action');
-    calls.push({ action, eventId: requestUrl.searchParams.get('event') });
+    calls.push({ action, eventId: requestUrl.searchParams.get('event'), search: requestUrl.search });
     let data;
     if (action === failedAction) return { ok: false, status: 404, json: async () => ({ error: 'This event could not be found.' }) };
     if (action === 'status') data = { initialized: true, authenticated: !player, csrf: 'test-csrf' };
@@ -69,6 +69,20 @@ test('player selection is a compact name/GM list; submitting ranks and vetoes sa
   assert.equal(h.posts[0].eventId, state.event.id); assert.equal(h.posts[0].definitionRevision, 4);
   assert.match(h.element('#app').innerHTML, /saved on the event server/);
   assert.equal(h.storage.get(`tabletop-response-${state.event.id}`), 'a'.repeat(64));
+});
+test('player event-specific URL reaches the right event without matching the blocker filter', async () => {
+  const state = sampleState(), h = harness(true, state, '', state.event.id);
+  await new vm.Script(script).runInContext(h.context);
+  assert.equal(h.calls.find((call) => call.action === 'status').eventId, null);
+  const eventRequest = h.calls.find((call) => call.action === 'event');
+  assert.equal(eventRequest.eventId, state.event.id);
+  assert.equal(eventRequest.search, `?event=${state.event.id}&action=event`);
+  assert.match(h.element('#app').innerHTML, new RegExp(state.event.name));
+});
+test('player error retry preserves the event-specific URL', async () => {
+  const state = sampleState(), h = harness(true, state, '', state.event.id, 'event');
+  await new vm.Script(script).runInContext(h.context);
+  assert.match(h.element('#app').innerHTML, new RegExp(`href="https://example\\.test/event/players\\.html\\?event=${state.event.id}"`));
 });
 test('organizers have a visible rules page with methods, required first choices, veto-safe fallback, GM coverage, and player caps', async () => {
   const sample = sampleState();

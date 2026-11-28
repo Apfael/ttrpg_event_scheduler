@@ -784,8 +784,9 @@ class SharedPlanner {
     const extraHeaders = { ...options.headers };
     if (extraHeaders.Authorization) { extraHeaders['X-Tabletop-Response'] = extraHeaders.Authorization; delete extraHeaders.Authorization; }
     try {
-      const query = new URLSearchParams({ action });
+      const query = new URLSearchParams();
       if (this.eventId && action !== 'status') query.set('event', this.eventId);
+      query.set('action', action);
       response = await this.transport(`${this.endpoint}?${query}`, {
         credentials: 'same-origin', cache: 'no-store', ...options,
         headers: { ...(input === undefined ? {} : { 'Content-Type': 'application/json', 'X-Tabletop-CSRF': this.csrf || '' }), ...extraHeaders },
